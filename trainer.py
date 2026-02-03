@@ -1071,6 +1071,21 @@ class TrainerDifIRLPIPS(TrainerDifIR):
                 self.logger.info(f"Elapsed time: {elaplsed:.2f}s")
                 self.logger.info("="*100)
 
+class TrainerDifadapter(TrainerDifIR):
+    def build_model(self):
+        super().build_model()
+        # freeze the diffusion model
+        self.freeze_model(self.model)
+        # unfreeze the adapter modules
+        num_params = 0
+        for name, module in self.model.named_modules():
+            if 'adapter' in name:
+                for param in module.parameters():
+                    param.requires_grad = True
+                    num_params += param.numel()
+        if self.rank == 0:
+            self.logger.info(f'Tuning adapter modules: {num_params/10**6:.2f}M...')
+
 def replace_nan_in_batch(im_lq, im_gt):
     '''
     Input:

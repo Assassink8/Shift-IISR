@@ -95,9 +95,10 @@ class BaseSampler:
         elif self.configs.autoencoder.get("tune_decoder", False):
             vae_state = ckpt['vae']
         if self.configs.autoencoder is not None:
-            params = self.configs.autoencoder.get('params', dict)
+            # params = self.configs.autoencoder.get('params', dict)
+            params = self.configs.autoencoder.get('params', {})
             autoencoder = util_common.get_obj_from_str(self.configs.autoencoder.target)(**params)
-            autoencoder.cuda()
+            autoencoder = autoencoder.cuda()
             if self.configs.autoencoder.params.get("lora_tune_decoder", False):
                 ckpt_path = self.configs.autoencoder.ckpt_path
                 self.write_log(f'Loading AutoEncoder model from {ckpt_path}...')
@@ -118,6 +119,29 @@ class BaseSampler:
             self.autoencoder = autoencoder
         else:
             self.autoencoder = None
+
+        # load autoencoder wrapper
+        if self.configs.get("autoencoderwrapper", None) is not None:
+            # params = self.configs.autoencoderwrapper.get('params', dict)
+            params = OmegaConf.to_container(
+                self.configs.autoencoderwrapper.params, resolve=True
+            )
+            params['base_ae'] = self.autoencoder
+            autoencoder_wrapper = util_common.get_obj_from_str(self.configs.autoencoderwrapper.target)(**params)
+            autoencoder_wrapper = autoencoder_wrapper.cuda()
+            if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None and self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None) is not None:
+                ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.ckpt_path
+                self.write_log(f'Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...')
+                self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path)
+            if self.configs.autoencoderwrapper.params.get("private_encoder", None) is not None and self.configs.autoencoderwrapper.params.private_encoder.get("ckpt_path", None) is not None:
+                ckpt_path = self.configs.autoencoderwrapper.params.private_encoder.ckpt_path
+                self.write_log(f'Loading AutoEncoder Wrapper private encoder from {ckpt_path}...')
+                self.load_model(autoencoder_wrapper.private_encoder, ckpt_path)
+            if self.configs.autoencoderwrapper.params.get("decoder_adapter", None) is not None and self.configs.autoencoderwrapper.params.decoder_adapter.get("ckpt_path", None) is not None:
+                ckpt_path = self.configs.autoencoderwrapper.params.decoder_adapter.ckpt_path
+                self.write_log(f'Loading AutoEncoder Wrapper decoder adapter from {ckpt_path}...')
+                self.load_model(autoencoder_wrapper.decoder_adapter, ckpt_path)
+            self.autoencoder = autoencoder_wrapper.eval()
 
     def load_model_lora(self, model, ckpt_path=None, tag='model'):
         if self.rank == 0:

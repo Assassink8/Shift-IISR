@@ -1,25 +1,6 @@
 trainer:
   target: trainer.TrainerDifIRLPIPS
 
-
-autoencoderwrapper:
-  target: ldm.models.autoencoder.VQModelTorchWrapper
-  params:
-    freeze_base: True
-    shared_encoder:
-      target: ldm.models.shared_encoder.SharedEncoder
-      ckpt_path: ~
-      params:
-        in_channels: 3
-        context_dim: 768
-        base_channels: 64
-        num_blocks: 2
-        # act: None
-    private_encoder: null
-
-
-    decoder_adapter: null
-    
 autoencoder:
   target: ldm.models.autoencoder.VQModelTorch
   ckpt_path: weights/autoencoder_vq_f4.pth
@@ -44,7 +25,7 @@ autoencoder:
       padding_mode: zeros
 
 model:
-  target: models.unet_adagn.UNetModelSwinAdagn
+  target: models.unet.UNetModelSwin
   ckpt_path: ~
   params:
     image_size: 64

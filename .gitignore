@@ -26,3 +26,5 @@ debug/
 weights/
 *.pycache/
 .cache/
+results
+results1/

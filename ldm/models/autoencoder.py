@@ -4,6 +4,8 @@ import torch.nn.functional as F
 
 from functools import partial
 from contextlib import contextmanager
+from typing import Optional, Tuple, Any
+from omegaconf import DictConfig
 
 import loralib as lora
 
@@ -61,6 +63,114 @@ class VQModelTorch(nn.Module):
         h = self.encode(input)
         dec = self.decode(h, force_not_quantize)
         return dec
+
+class VQModelTorchWrapper(nn.Module):
+    """
+    Wrap a VQModelTorch-like autoencoder and optionally insert:
+      - latent_encoder: applied after base.encode(x)
+      - latent_decoder: applied before base.decode(h)
+
+    This wrapper keeps the original VQModelTorch interface:
+      - encode(x) -> h
+      - decode(h, force_not_quantize=False) -> x_rec
+      - decode_code(code_b) -> x_rec
+      - forward(x, force_not_quantize=False) -> x_rec
+    """
+
+    def __init__(
+        self,
+        base_ae: nn.Module,
+        shared_encoder: Optional[nn.Module] = None,
+        private_encoder: Optional[nn.Module] = None,
+        decoder_adapter: Optional[nn.Module] = None,
+        freeze_base: bool = True,
+    ):
+        super().__init__()
+        if isinstance(base_ae, (dict, DictConfig)):
+            base_ae = instantiate_from_config(base_ae)
+        self.base_ae = base_ae
+        if isinstance(shared_encoder, (dict, DictConfig)):
+            shared_encoder = instantiate_from_config(shared_encoder)
+        self.shared_encoder = shared_encoder
+        if isinstance(private_encoder, (dict, DictConfig)):
+            private_encoder = instantiate_from_config(private_encoder)
+        self.private_encoder = private_encoder
+
+        if isinstance(decoder_adapter, (dict, DictConfig)):
+            decoder_adapter = instantiate_from_config(decoder_adapter)
+        self.decoder_adapter = decoder_adapter
+        
+        if freeze_base:
+            self.requires_grad_base_(False)
+        
+    # freezing helpers
+    def requires_grad_base_(self, flag: bool):
+        for p in self.base_ae.parameters():
+            p.requires_grad = flag
+        return self
+    
+    def requires_grad_shared(self, flag: bool):
+        if self.shared_encoder is not None:
+            for p in self.shared_encoder.parameters():
+                p.requires_grad = flag
+        if self.private_encoder is not None:
+            for p in self.private_encoder.parameters():
+                p.requires_grad  = flag
+        return self
+    
+    def encode(self, x: torch.Tensor, return_features=False, *args, **kwargs) -> torch.Tensor:
+        """
+        Base: h = base_ae.encode(x)
+        Then:  s = shared_encoder(h) if provided
+               p = private_encoder(h) if provided
+        """
+        h = self.base_ae.encode(x, *args, **kwargs)
+        if self.shared_encoder is not None:
+            s = self.shared_encoder(h)
+        if self.private_encoder is not None:
+            p = self.private_encoder(h)
+
+        if return_features:
+            return h, s, p
+        return h
+    
+    def decode(self, h: torch.Tensor, force_not_quantize: bool = False, *args, **kwargs) -> torch.Tensor:
+        """
+        Optionally map h via latent_decoder before base decode.
+        IMPORTANT: do NOT change force_not_quantize semantics.
+        """
+        if self.decoder_adapter is not None:
+            h = self.decoder_adapter(h)
+        return self.base_ae.decode(h, force_not_quantize=force_not_quantize, *args, **kwargs)
+
+    def decode_code(self, code_b: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        """
+        Keep original behavior. base_ae.decode_code will call base_ae.decode(..., force_not_quantize=True)
+        but that bypasses our latent_decoder. So we re-implement through base quantize embed_code + wrapper decode.
+        """
+        if not hasattr(self.base_ae, "quantize"):
+            raise AttributeError("base_ae has no attribute 'quantize', cannot decode_code.")
+
+        quant_b = self.base_ae.quantize.embed_code(code_b)
+        # Go through wrapper decode so latent_decoder is applied if present.
+        return self.decode(quant_b, force_not_quantize=True, *args, **kwargs)
+
+    def forward(self, x: torch.Tensor, force_not_quantize: bool = False, *args, **kwargs) -> torch.Tensor:
+        h = self.encode(x, *args, **kwargs)
+        return self.decode(h, force_not_quantize=force_not_quantize, *args, **kwargs)
+
+    @property
+    def encoder(self):
+        return getattr(self.base_ae, "encoder", None)
+
+    @property
+    def decoder(self):
+        return getattr(self.base_ae, "decoder", None)
+
+    @property
+    def quantize(self):
+        return getattr(self.base_ae, "quantize", None)
+    
 
 class AutoencoderKLTorch(torch.nn.Module):
     def __init__(self,
