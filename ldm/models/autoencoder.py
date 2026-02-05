@@ -129,7 +129,6 @@ class VQModelTorchWrapper(nn.Module):
             s = self.shared_encoder(h)
         if self.private_encoder is not None:
             p = self.private_encoder(h)
-
         if return_features:
             return h, s, p
         return h

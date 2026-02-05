@@ -57,7 +57,7 @@ def get_configs(args):
         ckpt_dir.mkdir()
 
     if args.task == 'bicsr':
-        configs = OmegaConf.load('./configs/bicx4_swinunet_lpips.yaml')
+        configs = OmegaConf.load('./configs/bicx4_swinunet_lpips_infer.yaml')
         assert args.scale == 4, 'We only support the 4x super-resolution now!'
         ckpt_url = _LINK[args.task]
         ckpt_path = ckpt_dir / f'resshift_{args.task}x{args.scale}_s{_STEP[args.task]}.pth'
@@ -82,7 +82,7 @@ def get_configs(args):
             file_name=vqgan_path.name,
             )
 
-    configs.model.ckpt_path = str(ckpt_path)
+    # configs.model.ckpt_path = str(ckpt_path)
     configs.diffusion.params.sf = args.scale
     configs.autoencoder.ckpt_path = str(vqgan_path)
 

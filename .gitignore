@@ -28,3 +28,12 @@ weights/
 .cache/
 results
 results1/
+datapipe/__pycache__/datasets.cpython-310.pyc
+testdata/data/test_set5
+datapipe/__pycache__/datasets.cpython-310.pyc
+testdata/
+results/
+results1/
+result_adapter/
+result_adapter_2000/
+result_adapter_4000/

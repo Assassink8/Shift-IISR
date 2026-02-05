@@ -5,6 +5,7 @@ autoencoder:
   target: ldm.models.autoencoder.VQModelTorch
   ckpt_path: weights/autoencoder_vq_f4.pth
   use_fp16: True
+  tune_decoder: False
   params:
     embed_dim: 3
     n_embed: 8192
@@ -23,6 +24,7 @@ autoencoder:
       attn_resolutions: []
       dropout: 0.0
       padding_mode: zeros
+    lora_tune_decoder: False
 
 model:
   target: models.unet.UNetModelSwin
@@ -71,10 +73,10 @@ data:
   train:
     type: bicubic
     params:
-      source_path: ~ 
-      source_txt_path: 
-        - /mnt/sfs-common/zsyue/database/ImageNet/files_txt/path_train_all.txt
-        - /mnt/sfs-common/zsyue/database/FFHQ/files_txt/files256.txt
+      source_path: /share/huayunpeng-nfs/image_enhancement/ResShift/testdata/test/HR
+      source_txt_path: ~
+        # - /mnt/sfs-common/zsyue/database/ImageNet/files_txt/path_train_all.txt
+        # - /mnt/sfs-common/zsyue/database/FFHQ/files_txt/files256.txt
       degrade_kwargs:
         scale: 0.25
         activate_matlab: True
@@ -89,28 +91,28 @@ data:
         std: 0.5
       length: ~
       need_path: False
-      im_exts: JPEG
-      recursive: False
-  val:
-    type: bicubic
-    params:
-      source_path: /mnt/sfs-common/zsyue/projects/ResShift/SR/testingdata/imagenet256/gt
-      degrade_kwargs:
-        scale: 0.25
-        activate_matlab: True
-        resize_back: False
-        pch_size: 256
-        pass_smallmaxresize: True
-        pass_aug: True
-        pass_crop: True
-      transform_type: default
-      transform_kwargs:
-        mean: 0.5
-        std: 0.5
-      length: 64
-      need_path: False
       im_exts: png
       recursive: False
+  # val:
+  #   type: bicubic
+  #   params:
+  #     source_path: /mnt/sfs-common/zsyue/projects/ResShift/SR/testingdata/imagenet256/gt
+  #     degrade_kwargs:
+  #       scale: 0.25
+  #       activate_matlab: True
+  #       resize_back: False
+  #       pch_size: 256
+  #       pass_smallmaxresize: True
+  #       pass_aug: True
+  #       pass_crop: True
+  #     transform_type: default
+  #     transform_kwargs:
+  #       mean: 0.5
+  #       std: 0.5
+  #     length: 64
+  #     need_path: False
+  #     im_exts: png
+  #     recursive: False
 
 train:
   # learning rate
@@ -119,10 +121,10 @@ train:
   lr_schedule: cosin
   warmup_iterations: 5000
   # dataloader
-  batch: [96, 8]                
-  microbatch: 12
-  num_workers: 6
-  prefetch_factor: 2            
+  batch: [8, 1]                
+  microbatch: 8
+  num_workers: 0
+  prefetch_factor: null           
   # optimization settings
   weight_decay: 0               
   ema_rate: 0.999
@@ -145,5 +147,5 @@ train:
   global_seeding: False
   # model compile
   compile:
-    flag: True
+    flag: False
     mode: reduce-overhead      # default, reduce-overhead

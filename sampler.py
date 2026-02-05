@@ -142,6 +142,25 @@ class BaseSampler:
                 self.write_log(f'Loading AutoEncoder Wrapper decoder adapter from {ckpt_path}...')
                 self.load_model(autoencoder_wrapper.decoder_adapter, ckpt_path)
             self.autoencoder = autoencoder_wrapper.eval()
+        
+        #load unet wrapper
+        if self.configs.get("unet_wrapper", None) is not None:
+            # params = self.configs.unetwrapper.get('params', dict)
+            params = OmegaConf.to_container(
+                self.configs.unet_wrapper.params, resolve=True
+            )
+            params['unet'] = self.model
+            unet_wrapper = util_common.get_obj_from_str(self.configs.unet_wrapper.target)(**params)
+            unet_wrapper = unet_wrapper.cuda()
+            if self.configs.unet_wrapper.params.get("private_proj", None) is not None and self.configs.unet_wrapper.params.private_proj.get("ckpt_path", None) is not None:
+                ckpt_path = self.configs.unet_wrapper.params.private_proj.ckpt_path
+                self.write_log(f'Loading Unet Wrapper private projector from {ckpt_path}...')
+                self.load_model(unet_wrapper.private_proj, ckpt_path)
+            if self.configs.unet_wrapper.params.get("shared_proj", None) is not None and self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None) is not None:
+                ckpt_path = self.configs.unet_wrapper.params.shared_proj.ckpt_path
+                self.write_log(f'Loading Unet Wrapper shared projector from {ckpt_path}...')
+                self.load_model(unet_wrapper.shared_proj_16, ckpt_path)
+            self.model = unet_wrapper.eval()
 
     def load_model_lora(self, model, ckpt_path=None, tag='model'):
         if self.rank == 0:
@@ -195,8 +214,16 @@ class ResShiftSampler(BaseSampler):
         else:
             flag_pad = False
 
+        _, s_ir, p_ir = self.autoencoder.encode(y0, return_features=True)
+        
+         # model kwargs
+        model_kwargs = {}
+        if self.model.shared_proj_16 is not None:
+            model_kwargs['shared_feat'] = s_ir
+        if self.model.private_proj is not None:
+            model_kwargs['private_feat'] = p_ir
         if self.configs.model.params.cond_lq:
-            model_kwargs={'lq':y0,}
+            model_kwargs['lq'] = y0
         else:
             model_kwargs = None
 
@@ -311,7 +338,14 @@ class ResShiftSampler(BaseSampler):
 
             im_sr = util_image.tensor2img(im_sr_tensor, rgb2bgr=True, min_max=(0.0, 1.0))
             im_path = out_path / f"{in_path.stem}.png"
-            util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
+            im_gray = (
+                0.114 * im_sr[..., 0] +
+                0.587 * im_sr[..., 1] +
+                0.299 * im_sr[..., 2]
+            ).astype('uint8')
+            assert im_gray.ndim == 2
+            # util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
+            util_image.imwrite(im_gray, im_path, chn='gray', dtype_in='uint8')
 
         self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
 

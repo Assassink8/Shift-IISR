@@ -2,6 +2,7 @@ import random
 import numpy as np
 from pathlib import Path
 from scipy.io import loadmat
+import os
 
 import cv2
 import torch
@@ -143,6 +144,8 @@ def create_dataset(dataset_config):
         dataset = BicubicFromSource(**dataset_config['params'])
     elif dataset_config['type'] == 'paired':
         dataset = PairedData(**dataset_config['params'])
+    elif dataset_config['type'] == 'bicubic_ir_vis':
+        dataset = BicubicFromSourceIRVIS(**dataset_config['params'])
     else:
         raise NotImplementedError(dataset_config['type'])
 
@@ -611,5 +614,170 @@ class BicubicFromSource(DegradedDataFromSource):
 
         if self.need_path:
             out['path'] = im_path
+
+        return out
+
+class BicubicFromSourceIRVIS(BicubicFromSource):
+    """
+    继承 BicubicFromSource:
+    - diffusion 仍然使用红外: out['lq'], out['gt']
+    - 可见光仅作为 encoder 监督参考: out['vis_lq'], out['vis_gt']
+
+    约定 self.file_paths[index] 的格式支持两种：
+    1) tuple/list: (ir_path, vis_path)
+    2) dict: {'ir':..., 'vis':...} 或 {'ir_path':..., 'vis_path':...}
+    """
+    def __init__(
+        self,
+        ir_source_path,
+        vis_source_path,
+        source_txt_path=None,          # 可选：仍然支持txt（你也可以不用）
+        degrade_kwargs=None,
+        transform_type='default',
+        transform_kwargs={'mean':0.0, 'std':1.0},
+        length=None,
+        need_path=False,
+        im_exts=['png', 'jpg', 'jpeg', 'JPEG', 'bmp'],
+        recursive=False,
+        strict_pair=True,              # 找不到配对就报错
+        ):
+        # 先调用父类，初始化 transform / degrade_kwargs / need_path 等
+        # 这里随便传一个 source_path 占位，后面我们会覆盖 self.file_paths
+        super().__init__(
+            source_path=ir_source_path,  # 占位用
+            source_txt_path=source_txt_path,
+            degrade_kwargs=degrade_kwargs,
+            transform_type=transform_type,
+            transform_kwargs=transform_kwargs,
+            length=None,                 # 先不抽样，配对后再抽
+            need_path=need_path,
+            im_exts=im_exts,
+            recursive=recursive,
+        )
+
+        # 扫 ir / vis
+        ir_paths = util_common.scan_files_from_folder(ir_source_path, im_exts, recursive)
+        vis_paths = util_common.scan_files_from_folder(vis_source_path, im_exts, recursive)
+
+        # 建立 vis 的 filename -> path 映射
+        vis_map = {os.path.basename(p): p for p in vis_paths}
+
+        pairs = []
+        missing = []
+        for ir_p in ir_paths:
+            name = os.path.basename(ir_p)
+            vis_p = vis_map.get(name, None)
+            if vis_p is None:
+                missing.append(name)
+                if strict_pair:
+                    continue
+            else:
+                pairs.append((ir_p, vis_p))
+
+        if strict_pair and len(missing) > 0:
+            raise FileNotFoundError(f"Missing {len(missing)} vis files, e.g. {missing[:5]}")
+
+        # length：配对后再抽样
+        if length is not None:
+            assert len(pairs) >= length, f"pairs={len(pairs)} < length={length}"
+            pairs = random.sample(pairs, length)
+
+        self.file_paths = pairs
+    def _parse_paths(self, item):
+        if isinstance(item, (tuple, list)) and len(item) >= 2:
+            return item[0], item[1]
+        if isinstance(item, dict):
+            ir = item.get('ir') or item.get('ir_path') or item.get('infrared')
+            vis = item.get('vis') or item.get('vis_path') or item.get('visible')
+            if ir is None or vis is None:
+                raise KeyError(f"file_paths item dict missing ir/vis keys: {item.keys()}")
+            return ir, vis
+        raise TypeError(f"Unsupported file_paths item type: {type(item)}")
+
+    def __getitem__(self, index):
+        item = self.file_paths[index]
+        ir_path, vis_path = self._parse_paths(item)
+
+        # 读图：可见光默认 rgb；红外默认 gray（可在 degrade_kwargs 里改）
+        ir_chn = self.degrade_kwargs.get('ir_chn', 'rgb')   # 'gray' or 'rgb'
+        vis_chn = self.degrade_kwargs.get('vis_chn', 'rgb')  # 'rgb' or 'gray'
+
+        im_ir_gt = util_image.imread(ir_path, chn=ir_chn, dtype='float32')
+        im_vis_gt = util_image.imread(vis_path, chn=vis_chn, dtype='float32')
+        
+        # if im_ir_gt.ndim == 3 and im_ir_gt.shape[2] == 3:
+        #     im_ir_gray = im_ir_gt.mean(axis=2, keepdims=True)
+        #     im_ir_gt = np.squeeze(im_ir_gray, axis=2)
+        # #可见光转灰度
+        # im_vis_gray = (
+        #     0.299 * im_vis_gt[:, :, 0] +
+        #     0.587 * im_vis_gt[:, :, 1] +
+        #     0.114 * im_vis_gt[:, :, 2]
+        # )
+        # # 统一成 HWC
+        # im_vis_gt = im_vis_gray
+
+        # # repeat [gray] to 3 channels if needed
+        # if im_ir_gt.ndim == 2:
+        #     im_ir_gt = np.repeat(im_ir_gt[:, :, None], 3, axis=2)
+        # if im_vis_gt.ndim == 2:
+        #     im_vis_gt = np.repeat(im_vis_gt[:, :, None], 3, axis=2)
+
+        # 懒初始化（沿用父类的 degrade_kwargs）
+        if not hasattr(self, 'smallmax_resizer'):
+            self.smallmax_resizer = util_image.SmallestMaxSize(
+                max_size=self.degrade_kwargs.get('gt_size', 256),
+            )
+        if not hasattr(self, 'bicubic_transform'):
+            self.bicubic_transform = util_image.Bicubic(
+                scale=self.degrade_kwargs.get('scale', None),
+                out_shape=self.degrade_kwargs.get('out_shape', None),
+                activate_matlab=self.degrade_kwargs.get('activate_matlab', True),
+                resize_back=self.degrade_kwargs.get('resize_back', False),
+            )
+        if not hasattr(self, 'random_cropper'):
+            self.random_cropper = util_image.RandomCrop(
+                pch_size=self.degrade_kwargs.get('pch_size', None),
+                pass_crop=self.degrade_kwargs.get('pass_crop', False),
+            )
+        if not hasattr(self, 'paired_aug'):
+            self.paired_aug = util_image.SpatialAug(
+                pass_aug=self.degrade_kwargs.get('pass_aug', False)
+            )
+
+        # 关键：确保两路使用“同一组随机 crop / 同一组增强”
+        # 做法：把两路 GT 在 channel 维拼起来，resize + crop 一次，再拆开
+        c_ir = im_ir_gt.shape[2]
+        c_vis = im_vis_gt.shape[2]
+        im_cat = np.concatenate([im_ir_gt, im_vis_gt], axis=2)
+
+        im_cat = self.smallmax_resizer(im_cat)
+        im_cat = self.random_cropper(im_cat)
+
+        im_ir_gt = im_cat[:, :, :c_ir]
+        im_vis_gt = im_cat[:, :, c_ir:c_ir + c_vis]
+
+        # 各自做 bicubic 退化得到 LQ
+        im_ir_lq = self.bicubic_transform(im_ir_gt)
+        im_vis_lq = self.bicubic_transform(im_vis_gt)
+
+        # 同步空间增强（对 4 张图一起做相同翻转/旋转等）
+        im_ir_lq, im_ir_gt, im_vis_lq, im_vis_gt = self.paired_aug(
+            [im_ir_lq, im_ir_gt, im_vis_lq, im_vis_gt]
+        )
+
+        out = {
+            # diffusion 只吃红外（兼容原 trainer：gt/lq）
+            'gt': self.transform(im_ir_gt),
+            'lq': self.transform(im_ir_lq),
+
+            # 可见光作为参考数据（给 encoder 的 aux loss 用）
+            'vis_gt': self.transform(im_vis_gt),
+            'vis_lq': self.transform(im_vis_lq),
+        }
+
+        if self.need_path:
+            out['ir_path'] = ir_path
+            out['vis_path'] = vis_path
 
         return out

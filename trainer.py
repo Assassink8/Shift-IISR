@@ -6,6 +6,7 @@ import os, sys, math, time, random, datetime, functools
 import lpips
 import numpy as np
 from pathlib import Path
+from tqdm import tqdm
 from loguru import logger
 from copy import deepcopy
 from omegaconf import OmegaConf
@@ -223,12 +224,12 @@ class TrainerBase:
             self.model = model
 
         # EMA
-        if self.rank == 0 and hasattr(self.configs.train, 'ema_rate'):
-            self.ema_model = deepcopy(model).cuda()
-            self.ema_state = OrderedDict(
-                {key:deepcopy(value.data) for key, value in self.model.state_dict().items()}
-                )
-            self.ema_ignore_keys = [x for x in self.ema_state.keys() if ('running_' in x or 'num_batches_tracked' in x)]
+        # if self.rank == 0 and hasattr(self.configs.train, 'ema_rate'):
+        #     self.ema_model = deepcopy(model).cuda()
+        #     self.ema_state = OrderedDict(
+        #         {key:deepcopy(value.data) for key, value in self.model.state_dict().items()}
+        #         )
+        #     self.ema_ignore_keys = [x for x in self.ema_state.keys() if ('running_' in x or 'num_batches_tracked' in x)]
 
         # model information
         self.print_model_info()
@@ -306,7 +307,14 @@ class TrainerBase:
 
         self.model.train()
         num_iters_epoch = math.ceil(len(self.datasets['train']) / self.configs.train.batch[0])
-        for ii in range(self.iters_start, self.configs.train.iterations):
+        # for ii in range(self.iters_start, self.configs.train.iterations):
+        for ii in tqdm(
+                range(self.iters_start, self.configs.train.iterations),
+                initial=self.iters_start,
+                total=self.configs.train.iterations,
+                desc="Training"
+            ):
+
             self.current_iters = ii + 1
 
             # prepare data
@@ -325,7 +333,7 @@ class TrainerBase:
             # save checkpoint
             if (ii+1) % self.configs.train.save_freq == 0:
                 self.save_ckpt()
-
+            # 分布式训练更新epcoch
             if (ii+1) % num_iters_epoch == 0 and self.sampler is not None:
                 self.sampler.set_epoch(ii+1)
 
@@ -446,8 +454,8 @@ class TrainerDifIR(TrainerBase):
 
     def build_model(self):
         super().build_model()
-        if self.rank == 0 and hasattr(self.configs.train, 'ema_rate'):
-            self.ema_ignore_keys.extend([x for x in self.ema_state.keys() if 'relative_position_index' in x])
+        # if self.rank == 0 and hasattr(self.configs.train, 'ema_rate'):
+        #     self.ema_ignore_keys.extend([x for x in self.ema_state.keys() if 'relative_position_index' in x])
 
         # autoencoder
         if self.configs.autoencoder is not None:
@@ -485,23 +493,24 @@ class TrainerDifIR(TrainerBase):
             self.freeze_model(self.model)
 
         # LPIPS metric
-        if hasattr(self.configs, 'lpips'):
-            lpips_net = self.configs.lpips.net
-        else:
-            lpips_net = 'vgg'
-        if self.rank == 0:
-            self.logger.info(f"Loading LIIPS Metric: {lpips_net}...")
-        lpips_loss = lpips.LPIPS(net=lpips_net).to(f"cuda:{self.rank}")
-        for params in lpips_loss.parameters():
-            params.requires_grad_(False)
-        lpips_loss.eval()
-        if self.configs.train.compile.flag:
+        if self.configs.train.get('use_lpips', False):
+            if hasattr(self.configs, 'lpips'):
+                lpips_net = self.configs.lpips.net
+            else:
+                lpips_net = 'vgg'
             if self.rank == 0:
-                self.logger.info("Begin compiling LPIPS Metric...")
-            lpips_loss = torch.compile(lpips_loss, mode=self.configs.train.compile.mode)
-            if self.rank == 0:
-                self.logger.info("Compiling Done")
-        self.lpips_loss = lpips_loss
+                self.logger.info(f"Loading LIIPS Metric: {lpips_net}...")
+            lpips_loss = lpips.LPIPS(net=lpips_net).to(f"cuda:{self.rank}")
+            for params in lpips_loss.parameters():
+                params.requires_grad_(False)
+            lpips_loss.eval()
+            if self.configs.train.compile.flag:
+                if self.rank == 0:
+                    self.logger.info("Begin compiling LPIPS Metric...")
+                lpips_loss = torch.compile(lpips_loss, mode=self.configs.train.compile.mode)
+                if self.rank == 0:
+                    self.logger.info("Compiling Done")
+            self.lpips_loss = lpips_loss
 
         params = self.configs.diffusion.get('params', dict)
         self.base_diffusion = util_common.get_obj_from_str(self.configs.diffusion.target)(**params)
@@ -1072,19 +1081,549 @@ class TrainerDifIRLPIPS(TrainerDifIR):
                 self.logger.info("="*100)
 
 class TrainerDifadapter(TrainerDifIR):
+
     def build_model(self):
         super().build_model()
+        # load autoencoder wrapper if provided
+        if self.configs.get("autoencoderwrapper", None) is not None:
+            params = OmegaConf.to_container(
+                self.configs.autoencoderwrapper.params, resolve=True
+            )
+            params["base_ae"] = self.autoencoder
+            autoencoder_wrapper = util_common.get_obj_from_str(
+                self.configs.autoencoderwrapper.target
+            )(**params)
+            autoencoder_wrapper = autoencoder_wrapper.cuda()
+
+            if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None:
+                ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None)
+                if ckpt_path is not None:
+                    if self.rank == 0:
+                        self.logger.info(f"Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...")
+                    self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path, tag="shared_encoder")
+
+            if self.configs.autoencoderwrapper.params.get("private_encoder", None) is not None:
+                ckpt_path = self.configs.autoencoderwrapper.params.private_encoder.get("ckpt_path", None)
+                if ckpt_path is not None:
+                    if self.rank == 0:
+                        self.logger.info(f"Loading AutoEncoder Wrapper private encoder from {ckpt_path}...")
+                    self.load_model(autoencoder_wrapper.private_encoder, ckpt_path, tag="private_encoder")
+
+            if self.configs.autoencoderwrapper.params.get("decoder_adapter", None) is not None:
+                ckpt_path = self.configs.autoencoderwrapper.params.decoder_adapter.get("ckpt_path", None)
+                if ckpt_path is not None:
+                    if self.rank == 0:
+                        self.logger.info(f"Loading AutoEncoder Wrapper decoder adapter from {ckpt_path}...")
+                    self.load_model(autoencoder_wrapper.decoder_adapter, ckpt_path, tag="decoder_adapter")
+
+            if self.configs.train.compile.flag:
+                if self.rank == 0:
+                    self.logger.info("Begin compiling autoencoder wrapper...")
+                autoencoder_wrapper = torch.compile(
+                    autoencoder_wrapper, mode=self.configs.train.compile.mode
+                )
+                if self.rank == 0:
+                    self.logger.info("Compiling Done")
+
+            self.autoencoder = autoencoder_wrapper
+
+        # load discriminator if provided
+        if self.configs.get("discriminator_shared", None) is not None:
+            params = OmegaConf.to_container(
+                self.configs.discriminator_shared.params, resolve=True
+            )
+            discriminator_shared = util_common.get_obj_from_str(
+                self.configs.discriminator_shared.target
+            )(**params)
+            discriminator_shared = discriminator_shared.cuda()
+
+            ckpt_path = self.configs.discriminator_shared.get("ckpt_path", None)
+            if ckpt_path is not None:
+                if self.rank == 0:
+                    self.logger.info(f"Loading Discriminator Shared from {ckpt_path}...")
+                self.load_model(discriminator_shared, ckpt_path, tag="discriminator_shared")
+
+            if self.configs.train.compile.flag:
+                if self.rank == 0:
+                    self.logger.info("Begin compiling discriminator shared...")
+                discriminator_shared = torch.compile(
+                    discriminator_shared, mode=self.configs.train.compile.mode
+                )
+                if self.rank == 0:
+                    self.logger.info("Compiling Done")
+
+            self.discriminator_shared = discriminator_shared
+
+        # load private discriminator if provided
+        if self.configs.get("discriminator_private", None) is not None:
+            params = OmegaConf.to_container(
+                self.configs.discriminator_private.params, resolve=True
+            )
+            discriminator_private = util_common.get_obj_from_str(
+                self.configs.discriminator_private.target
+            )(**params)
+            discriminator_private = discriminator_private.cuda()
+
+            ckpt_path = self.configs.discriminator_private.get("ckpt_path", None)
+            if ckpt_path is not None:
+                if self.rank == 0:
+                    self.logger.info(f"Loading Discriminator Private from {ckpt_path}...")
+                self.load_model(discriminator_private, ckpt_path, tag="discriminator_private")
+
+            if self.configs.train.compile.flag:
+                if self.rank == 0:
+                    self.logger.info("Begin compiling discriminator private...")
+                discriminator_private = torch.compile(
+                    discriminator_private, mode=self.configs.train.compile.mode
+                )
+                if self.rank == 0:
+                    self.logger.info("Compiling Done")
+
+            self.discriminator_private = discriminator_private
+
+
+        #load unet wrapper
+        if self.configs.get("unet_wrapper", None) is not None:
+            params = OmegaConf.to_container(
+                self.configs.unet_wrapper.params, resolve=True
+            )
+            params["unet"] = self.model
+            unet_wrapper = util_common.get_obj_from_str(
+                self.configs.unet_wrapper.target
+            )(**params)
+            unet_wrapper = unet_wrapper.cuda()
+            if self.configs.unet_wrapper.params.get("shared_proj", None) is not None:
+                ckpt_path = self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None)
+                if ckpt_path is not None:
+                    if self.rank == 0:
+                        self.logger.info(f"Loading Unet Wrapper shared projector from {ckpt_path}...")
+                    self.load_model(unet_wrapper.shared_proj_16, ckpt_path, tag="unet_shared_proj")
+            if self.configs.unet_wrapper.params.get("private_proj", None) is not None:
+                ckpt_path = self.configs.unet_wrapper.params.private_proj.get("ckpt_path", None)
+                if ckpt_path is not None:
+                    if self.rank == 0:
+                        self.logger.info(f"Loading Unet Wrapper private projector from {ckpt_path}...")
+                    self.load_model(unet_wrapper.private_proj, ckpt_path, tag="unet_private_proj")
+            if self.configs.train.compile.flag:
+                if self.rank == 0:
+                    self.logger.info("Begin compiling autoencoder wrapper...")
+                autoencoder_wrapper = torch.compile(
+                    autoencoder_wrapper, mode=self.configs.train.compile.mode
+                )
+                if self.rank == 0:
+                    self.logger.info("Compiling Done")
+            self.model = unet_wrapper
+
         # freeze the diffusion model
         self.freeze_model(self.model)
+        # 解冻projector
+        for p in self.model.shared_proj_16.parameters():
+            p.requires_grad = True
+        for p in self.model.private_proj.parameters():
+            p.requires_grad = True
         # unfreeze the adapter modules
-        num_params = 0
-        for name, module in self.model.named_modules():
-            if 'adapter' in name:
-                for param in module.parameters():
-                    param.requires_grad = True
-                    num_params += param.numel()
+        # num_params = 0
+        # for name, module in self.model.named_modules():
+        #     if 'adapter' in name:
+        #         for param in module.parameters():
+        #             param.requires_grad = True
+        #             num_params += param.numel()
+        # if self.rank == 0:
+        #     self.logger.info(f'Tuning adapter modules: {num_params/10**6:.2f}M...')
+
+        # trainable parameters
+        print("Unet trainable parameters:", sum(p.numel() for p in self.model.parameters() if p.requires_grad))
+        print("Diffusion model trainable parameters:", sum(p.numel() for p in self.model.unet.parameters() if p.requires_grad) if hasattr(self.model, "unet") and self.model.unet is not None else 0)
+        print("AutoEncoder Wrapper trainable parameters:", sum(p.numel() for p in self.autoencoder.parameters() if p.requires_grad))
+        print("Autoencoder base ae trainable parameters:", sum(p.numel() for p in self.autoencoder.base_ae.parameters() if p.requires_grad) if hasattr(self.autoencoder, "base_ae") and self.autoencoder.base_ae is not None else 0)
+        print("shared encoder trainable parameters:", sum(p.numel() for p in self.autoencoder.shared_encoder.parameters() if p.requires_grad) if hasattr(self.autoencoder, "shared_encoder") and self.autoencoder.shared_encoder is not None else 0)
+        print("private encoder trainable parameters:", sum(p.numel() for p in self.autoencoder.private_encoder.parameters() if p.requires_grad) if hasattr(self.autoencoder, "private_encoder") and self.autoencoder.private_encoder is not None else 0)
+        print("Discriminator Shared trainable parameters:", sum(p.numel() for p in self.discriminator_shared.parameters() if p.requires_grad) if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None else 0)
+        print("Discriminator Private trainable parameters:", sum(p.numel() for p in self.discriminator_private.parameters() if p.requires_grad) if hasattr(self, "discriminator_private") and self.discriminator_private is not None else 0)
+              
+
+    def training_step(self, data):
+        self.model.train()
+        if hasattr(self, "autoencoder") and self.autoencoder is not None:
+            self.autoencoder.train()
+        if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None:
+            self.discriminator_shared.train()
+        if hasattr(self, "discriminator_private") and getattr(self, "discriminator_private") is not None:
+            self.discriminator_private.train()
+
+        current_batchsize = data['gt'].shape[0]
+        micro_batchsize = self.configs.train.microbatch
+        num_grad_accumulate = math.ceil(current_batchsize / micro_batchsize)
+
+       # 清梯度：G/D 都清
+        self.optimizer.zero_grad(set_to_none=True)
+        if getattr(self, "optimizer_D", None) is not None:
+            self.optimizer_D.zero_grad(set_to_none=True)
+        if getattr(self, "optimizer_Dp", None) is not None:
+            self.optimizer_Dp.zero_grad(set_to_none=True)
+
+        lambda_adv = float(getattr(self.configs.train.loss_coef, "lambda_adv", 0.0))
+        lambda_private = float(getattr(self.configs.train.loss_coef, "lambda_private", 0.0))
+
+        shared_branch = bool(getattr(self.configs.train, "shared_branch", True))
+        private_branch = bool(getattr(self.configs.train, "private_branch", True))
+
+        for jj in range(0, current_batchsize, micro_batchsize):
+            micro_data = {k: v[jj:jj+micro_batchsize] for k, v in data.items()}
+            last_batch = (jj+micro_batchsize >= current_batchsize)
+
+            # timestep
+            tt = torch.randint(
+                    0, self.base_diffusion.num_timesteps,
+                    size=(micro_data['gt'].shape[0],),
+                    device=micro_data['gt'].device,
+                )
+            #noise shape (latent space)
+            latent_downsamping_sf = 2**(len(self.configs.autoencoder.params.ddconfig.ch_mult) - 1)
+            latent_resolution = micro_data['gt'].shape[-1] // latent_downsamping_sf
+            noise_chn = self.configs.autoencoder.params.embed_dim
+            noise = torch.randn(
+                    size= (micro_data['gt'].shape[0], noise_chn,) + (latent_resolution, ) * 2,
+                    device=micro_data['gt'].device,
+                )
+            
+            _, s_ir, p_ir = self.autoencoder.encode(micro_data["lq"], return_features=True)
+            # model kwargs
+            model_kwargs = {}
+            if shared_branch:
+                model_kwargs['shared_feat'] = s_ir
+            if private_branch:
+                model_kwargs['private_feat'] = p_ir
+            if self.configs.model.params.cond_lq:
+                model_kwargs['lq'] = micro_data['lq']
+            else:
+                model_kwargs = None
+            
+            # 1) diffusion 主损失（只用红外）
+            compute_losses = functools.partial(
+                self.base_diffusion.training_losses,
+                self.model,
+                micro_data['gt'],          # IR gt
+                micro_data['lq'],          # IR lq
+                tt,
+                first_stage_model=self.autoencoder,  # 你的 wrapper
+                model_kwargs=model_kwargs,
+                noise=noise,
+            )
+
+            # ---------- diffusion loss（只 IR） ----------
+            # 保持父类 DDP no_sync 的写法
+            if (not last_batch) and (self.num_gpus > 1):
+                with self.model.no_sync():
+                    loss_dict, z_t, z0_pred = compute_losses()
+            else:
+                loss_dict, z_t, z0_pred = compute_losses()
+
+            # 这里你按你工程返回键选择：有的返回 loss/mse
+            diff_loss = loss_dict['loss'] if 'loss' in loss_dict else loss_dict['mse']
+            lambda_diff = float(getattr(self.configs.train.loss_coef, "lambda_diff", 1.0))
+            diff_loss = lambda_diff * diff_loss
+
+            # ---------- 计算 features（IR/VIS） ----------
+            loss_D = None
+            loss_adv = None
+            loss_Dp = None
+            loss_private = None
+
+            if 'vis_lq' in micro_data:
+                _, s_vis, p_vis = self.autoencoder.encode(micro_data["vis_lq"], return_features=True)
+
+                # print("shared_ir shape:", s_ir.shape)
+                # print("private_ir shape:", p_ir.shape)
+
+                lab_ir = torch.zeros(s_ir.size(0), dtype=torch.long, device=s_ir.device)  # 0=IR
+                lab_vis = torch.ones (s_vis.size(0), dtype=torch.long, device=s_vis.device)  # 1=VIS
+
+                # ---- shared 分支：训练 D + 对抗 encoder ----
+                if shared_branch and (self.discriminator_shared is not None):
+                     # (1) 训练 D：detach feature
+                    logits_ir_D = self.discriminator_shared(s_ir.detach())
+                    logits_vis_D = self.discriminator_shared(s_vis.detach())
+                    loss_D = F.cross_entropy(logits_ir_D, lab_ir) + F.cross_entropy(logits_vis_D, lab_vis)
+                
+                    # (2) 训练 encoder（shared）骗 D：冻结 D 参数，不 detach feature
+                    if lambda_adv != 0.0:
+                        for p in self.discriminator_shared.parameters():
+                            p.requires_grad_(False)
+
+                        logits_ir_E = self.discriminator_shared(s_ir)
+                        logits_vis_E = self.discriminator_shared(s_vis)
+                        # 取负号：最大化分类损失 -> 域不可分
+                        loss_adv = -(F.cross_entropy(logits_ir_E, lab_ir) + F.cross_entropy(logits_vis_E, lab_vis))
+                        
+                        for p in self.discriminator_shared.parameters():
+                            p.requires_grad_(True)
+                    
+                # ---- private 分支（可选）----
+                if private_branch and getattr(self, "discriminator_private", None) is not None and p_ir is not None and p_vis is not None:
+                    logits_p_ir = self.discriminator_private(p_ir.detach())
+                    logits_p_vis = self.discriminator_private(p_vis.detach())
+                    loss_Dp = F.cross_entropy(logits_p_ir, lab_ir) + F.cross_entropy(logits_p_vis, lab_vis)
+
+                    if lambda_private != 0.0:
+                        # private 想“更可分”：正向 CE
+                        logits_p_ir_e = self.discriminator_private(p_ir)
+                        logits_p_vis_e = self.discriminator_private(p_vis)
+                        loss_private = lambda_private * (F.cross_entropy(logits_p_ir_e, lab_ir) + F.cross_entropy(logits_p_vis_e, lab_vis))
+        
+
+            # ---------- backward：先 D，再 G ----------
+            # D backward（只让 D 收到梯度）
+            if loss_D is not None:
+                self.backward_step_D(loss_D, num_grad_accumulate)
+            if loss_Dp is not None:
+                self.backward_step_Dp(loss_Dp, num_grad_accumulate)
+
+            # G backward：diff + adv + (可选 private 可分 loss_private)
+            adv_term = (lambda_adv * loss_adv) if (loss_adv is not None and lambda_adv != 0.0) else None
+            extra_private = loss_private if (loss_private is not None) else None
+
+            # 把 adv_term 和 extra_private 合并成一个 extra（保持 backward_step_G 简洁）
+            extra = None
+            if adv_term is not None and extra_private is not None:
+                extra = adv_term + extra_private
+            elif adv_term is not None:
+                extra = adv_term
+            elif extra_private is not None:
+                extra = extra_private
+
+            self.backward_step_G(diff_loss, extra, num_grad_accumulate)
+
+            # logging（你原来的 log_step_train 依赖 z_t/z0_pred，这里没拿；你如果要保留就继续用 dif_loss_wrapper 返回那套）
+            if last_batch:
+                # 你可以把 loss_dict 加上 adv/D 再 log
+                if loss_adv is not None: loss_dict["adv_loss"] = loss_adv.detach()
+                if loss_D is not None:   loss_dict["loss_D"] = loss_D.detach()
+                if loss_Dp is not None:  loss_dict["loss_Dp"] = loss_Dp.detach()
+                # self.log_step_train(...) 需要你按原函数签名补 z_t/z0_pred（如果必须的话，你就还是用你父类 backward_step 那种 compute_losses() 返回 z_t,z0_pred 的版本）
+                # 这里先不强行调用，避免你接口对不上
+                # self.log_step_train(loss_dict, tt, micro_data, z_t, z0_pred.detach())
+                pass
+        
+        # ---------- step：G/D 都 step ----------
+        if self.configs.train.use_amp:
+            # G
+            self.amp_scaler.step(self.optimizer)
+            self.amp_scaler.update()
+            # D
+            if self.optimizer_D is not None and loss_D is not None:
+                self.amp_scaler_D.step(self.optimizer_D)
+                self.amp_scaler_D.update()
+            if getattr(self, "optimizer_Dp", None) is not None and loss_Dp is not None:
+                self.amp_scaler_Dp.step(self.optimizer_Dp)
+                self.amp_scaler_Dp.update()
+        else:
+            self.optimizer.step()
+            if self.optimizer_D is not None and loss_D is not None:
+                self.optimizer_D.step()
+            if getattr(self, "optimizer_Dp", None) is not None and loss_Dp is not None:
+                self.optimizer_Dp.step()
+
+         # 清梯度
+        self.optimizer.zero_grad(set_to_none=True)
+        if self.optimizer_D is not None:
+            self.optimizer_D.zero_grad(set_to_none=True)
+        if getattr(self, "optimizer_Dp", None) is not None:
+            self.optimizer_Dp.zero_grad(set_to_none=True)
+
+        # scheduler（如果你每 step 调一次）
+        if getattr(self, "lr_scheduler", None) is not None:
+            self.lr_scheduler.step()
+        if getattr(self, "lr_scheduler_D", None) is not None:
+            self.lr_scheduler_D.step()
+        if getattr(self, "lr_scheduler_Dp", None) is not None:
+            self.lr_scheduler_Dp.step()
+
+        # EMA
+        # if hasattr(self.configs.train, 'ema_rate'):
+        #     self.update_ema_model()
+                
+    def setup_optimizaton(self):
+        # ========= 1) 选择 G 的参数（diffusion + autoencoder parts） =========
+        params_G = []
+
+        train_diffusion = bool(getattr(self.configs.train, "train_diffusion", False))
+        if train_diffusion:
+            params_G += [p for p in self.model.parameters() if p.requires_grad]
+
+        if hasattr(self, "autoencoder") and self.autoencoder is not None:
+            params_G += [p for p in self.autoencoder.parameters() if p.requires_grad]
+
+        self.optimizer = torch.optim.AdamW(
+            params_G,
+            lr=self.configs.train.lr,
+            weight_decay=self.configs.train.weight_decay,
+        )
+
+        # ========= 2) 判别器 optimizer_D =========
+        if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None:
+            self.optimizer_D = torch.optim.AdamW(
+                self.discriminator_shared.parameters(),
+                lr=getattr(self.configs.train, "lr_D", self.configs.train.lr),
+                weight_decay=getattr(self.configs.train, "weight_decay_D", self.configs.train.weight_decay),
+            )
+        else:
+            self.optimizer_D = None
+
+        # private 判别器（如果你有）
+        if hasattr(self, "discriminator_private") and getattr(self, "discriminator_private") is not None:
+            self.optimizer_Dp = torch.optim.AdamW(
+                self.discriminator_private.parameters(),
+                lr=getattr(self.configs.train, "lr_Dp", getattr(self.configs.train, "lr_D", self.configs.train.lr)),
+                weight_decay=getattr(self.configs.train, "weight_decay_Dp", getattr(self.configs.train, "weight_decay_D", self.configs.train.weight_decay)),
+            )
+        else:
+            self.optimizer_Dp = None
+
+        # ========= 3) AMP =========
+        self.amp_scaler = amp.GradScaler() if self.configs.train.use_amp else None
+        self.amp_scaler_D = amp.GradScaler() if (self.configs.train.use_amp and self.optimizer_D is not None) else None
+        self.amp_scaler_Dp = amp.GradScaler() if (self.configs.train.use_amp and self.optimizer_Dp is not None) else None
+
+        # ========= 4) Scheduler =========
+        if self.configs.train.lr_schedule == 'cosin':
+            self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=self.optimizer,
+                T_max=self.configs.train.iterations - self.configs.train.warmup_iterations,
+                eta_min=self.configs.train.lr_min,
+            )
+            self.lr_scheduler_D = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=self.optimizer_D,
+                T_max=self.configs.train.iterations - self.configs.train.warmup_iterations,
+                eta_min=getattr(self.configs.train, "lr_min_D", self.configs.train.lr_min),
+            ) if self.optimizer_D is not None else None
+
+            self.lr_scheduler_Dp = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=self.optimizer_Dp,
+                T_max=self.configs.train.iterations - self.configs.train.warmup_iterations,
+                eta_min=getattr(self.configs.train, "lr_min_Dp", getattr(self.configs.train, "lr_min_D", self.configs.train.lr_min)),
+            ) if self.optimizer_Dp is not None else None
+        else:
+            self.lr_scheduler = None
+            self.lr_scheduler_D = None
+            self.lr_scheduler_Dp = None
+
+    def backward_step_G(self, diff_loss, adv_loss, num_grad_accumulate):
+        """
+        只负责对 G 做 backward。
+        diff_loss/adv_loss 都应是标量 tensor（未 mean 则这里会 mean）
+        """
+        context = torch.cuda.amp.autocast if self.configs.train.use_amp else nullcontext
+
+        with context():
+            # 保证是标量
+            loss = diff_loss
+            if loss.dim() > 0:
+                loss = loss.mean()
+
+            if adv_loss is not None:
+                loss = loss + adv_loss
+
+            loss = loss / num_grad_accumulate
+
+        if self.amp_scaler is None:
+            loss.backward()
+        else:
+            self.amp_scaler.scale(loss).backward()
+
+        return loss.detach()
+
+    def backward_step_D(self, loss_D, num_grad_accumulate):
+        if loss_D is None or self.optimizer_D is None:
+            return None
+        loss = loss_D
+        if loss.dim() > 0:
+            loss = loss.mean()
+        loss = loss / num_grad_accumulate
+
+        if self.amp_scaler_D is None:
+            loss.backward()
+        else:
+            self.amp_scaler_D.scale(loss).backward()
+        return loss.detach()
+
+    def backward_step_Dp(self, loss_Dp, num_grad_accumulate):
+        if loss_Dp is None or self.optimizer_Dp is None:
+            return None
+        loss = loss_Dp
+        if loss.dim() > 0:
+            loss = loss.mean()
+        loss = loss / num_grad_accumulate
+
+        if self.amp_scaler_Dp is None:
+            loss.backward()
+        else:
+            self.amp_scaler_Dp.scale(loss).backward()
+        return loss.detach()  
+
+    def validation(self, phase='val'):
+        pass
+
+    def save_ckpt(self):
         if self.rank == 0:
-            self.logger.info(f'Tuning adapter modules: {num_params/10**6:.2f}M...')
+            shared_proj_ckpt = {
+                    'iters_start': self.current_iters,
+                    # 'log_step': {phase:self.log_step[phase] for phase in ['train', 'val']},
+                    # 'log_step_img': {phase:self.log_step_img[phase] for phase in ['train', 'val']},
+                    'state_dict': self.model.shared_proj_16.state_dict(),  #unet
+                    }
+            torch.save(shared_proj_ckpt, self.ckpt_dir/f"shared_proj_{self.current_iters}.pth")
+            private_proj_ckpt = {
+                    'iters_start': self.current_iters,
+                    # 'log_step': {phase:self.log_step[phase] for phase in ['train', 'val']},
+                    # 'log_step_img': {phase:self.log_step_img[phase] for phase in ['train', 'val']},
+                    'state_dict': self.model.private_proj.state_dict(),  #unet
+                    }
+            torch.save(private_proj_ckpt, self.ckpt_dir/f"private_proj_{self.current_iters}.pth")
+            # 保存encoder
+            if getattr(self, "autoencoder", None) is not None:
+                if getattr(self.autoencoder, "shared_encoder", None) is not None:
+                    shared_encoder_ckpt = {
+                        'iters_start': self.current_iters,
+                        'state_dict': self.autoencoder.shared_encoder.state_dict(),
+                    }
+                    torch.save(shared_encoder_ckpt, self.ckpt_dir/f"shared_encoder_{self.current_iters}.pth")
+                if getattr(self.autoencoder, "private_encoder", None) is not None:
+                    private_encoder_ckpt = {
+                        'iters_start': self.current_iters,
+                        'state_dict': self.autoencoder.private_encoder.state_dict(),
+                    }
+                    torch.save(private_encoder_ckpt, self.ckpt_dir/f"private_encoder_{self.current_iters}.pth")
+                if getattr(self.autoencoder, "decoder_adapter", None) is not None:
+                    decoder_adapter_ckpt = {
+                        'iters_start': self.current_iters,
+                        'state_dict': self.autoencoder.decoder_adapter.state_dict(),
+                    }
+                    torch.save(decoder_adapter_ckpt, self.ckpt_dir/f"decoder_adapter_{self.current_iters}.pth")
+            # 保存判别器
+            if getattr(self, "discriminator_shared", None) is not None:
+                discriminator_shared_ckpt = {
+                    'iters_start': self.current_iters,
+                    'state_dict': self.discriminator_shared.state_dict(),
+                }
+                torch.save(discriminator_shared_ckpt, self.ckpt_dir/f"discriminator_shared_{self.current_iters}.pth")
+            if getattr(self, "discriminator_private", None) is not None:
+                discriminator_private_ckpt = {
+                    'iters_start': self.current_iters,
+                    'state_dict': self.discriminator_private.state_dict(),
+                }
+                torch.save(discriminator_private_ckpt, self.ckpt_dir/f"discriminator_private_{self.current_iters}.pth")
+            
+            if self.amp_scaler is not None:
+                amp_scaler_ckpt = {
+                    'iters_start': self.current_iters,
+                    'state_dict': self.amp_scaler.state_dict(),
+                }
+                torch.save(amp_scaler_ckpt, self.ckpt_dir/f"amp_scaler_{self.current_iters}.pth")
+
+            # if hasattr(self, 'ema_rate'):
+            #     ema_ckpt_path = self.ema_ckpt_dir / 'ema_model_{:d}.pth'.format(self.current_iters)
+            #     torch.save(self.ema_state, ema_ckpt_path)
 
 def replace_nan_in_batch(im_lq, im_gt):
     '''
