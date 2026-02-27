@@ -1227,6 +1227,16 @@ class UNetModelSwinAdagnV2(nn.Module):
         if isinstance(shared_proj, (dict, DictConfig)):
             self.shared_proj_16 = instantiate_from_config(shared_proj)
 
+        # 每层一个 gate（强烈建议 init=0，最稳）
+        # self.g6 = nn.Parameter(th.tensor(0.0))
+        # self.g7 = nn.Parameter(th.tensor(0.0))
+        # self.g8 = nn.Parameter(th.tensor(0.0))
+
+        # # 下面 c6/c7/c8 你要填成对应层 h 的通道数
+        # self.xattn6 = CrossAttn2D(c_q=320, c_ctx=320, n_heads=4, head_dim=64)
+        # self.xattn7 = CrossAttn2D(c_q=320, c_ctx=320, n_heads=4, head_dim=64)
+        # self.xattn8 = CrossAttn2D(c_q=320, c_ctx=320, n_heads=4, head_dim=64)
+
 
     def forward(self, x, timesteps, lq=None,
             private_feat=None, shared_feat=None):
@@ -1235,7 +1245,9 @@ class UNetModelSwinAdagnV2(nn.Module):
 
         # 注入点 1：emb
         if private_feat is not None:
-            emb = emb + self.private_proj(private_feat).type(emb.dtype)
+            private = self.private_proj(private_feat).type(emb.dtype)
+            # private = th.zeros_like(private)   #private 置零
+            emb = emb + private
 
         if lq is not None:
             assert self.unet.cond_lq
@@ -1247,8 +1259,23 @@ class UNetModelSwinAdagnV2(nn.Module):
             h = module(h, emb)
 
             # 注入点 2：h at ii==6
-            if shared_feat is not None and ii == 6:
-                h = h + self.shared_proj_16(shared_feat).type(h.dtype)
+            if shared_feat is not None and (ii in [6, 7, 8]):
+                shared = self.shared_proj_16(shared_feat).type(h.dtype)
+                # proj = self.shared_proj_16(shared_feat).type(h.dtype)  # 你的注入项
+                # print("h abs mean:", h.detach().abs().mean().item())
+                # print("proj abs mean:", proj.detach().abs().mean().item())
+                # print("proj/h ratio:", (proj.detach().abs().mean() / (h.detach().abs().mean() + 1e-8)).item())
+                shared = th.zeros_like(shared)    #shared 置零
+                h = h + shared
+            # if (shared_feat is not None) and (ii in [6, 7, 8]):
+            #     shared = self.shared_proj_16(shared_feat).type(h.dtype)  # [B,768,16,16] -> ctx
+
+            #     if ii == 6:
+            #         h = h + self.g6 * self.xattn6(h, shared).type(h.dtype)
+            #     elif ii == 7:
+            #         h = h + self.g7 * self.xattn7(h, shared).type(h.dtype)
+            #     else:
+            #         h = h + self.g8 * self.xattn8(h, shared).type(h.dtype)
 
             hs.append(h)
 
@@ -1550,8 +1577,9 @@ class SharedProjector(nn.Module):
     def forward(self, shared_feat: th.Tensor) -> th.Tensor:
         if shared_feat.dim() != 4:
             raise ValueError(f"Invalid shared_feat shape: {shared_feat.shape}")
-
         proj_feat = self.proj(shared_feat)
+        # print("shared_feat std:", shared_feat.std().item())
+        # print("proj std:", proj_feat.std().item())
         # if self.alpha.abs().item() > 1e-4:
         #     print(f"[Info] alpha activated: {self.alpha.item():.6f}")
         return self.alpha * proj_feat
@@ -1586,3 +1614,41 @@ class PrivateProjector(nn.Module):
         # if self.gate.abs().item() > 1e-4:
         #     print(f"[Info] gate activated: {self.gate.item():.6f}")
         return self.gate * delta_emb
+class CrossAttn2D(nn.Module):
+    def __init__(self, c_q: int, c_ctx: int, n_heads: int = 4, head_dim: int = 64, norm_groups: int = 32):
+        super().__init__()
+        self.n_heads = n_heads
+        self.head_dim = head_dim
+        inner = n_heads * head_dim
+
+        self.norm_q = nn.GroupNorm(num_groups=min(norm_groups, c_q), num_channels=c_q, eps=1e-6, affine=True)
+        self.norm_ctx = nn.GroupNorm(num_groups=min(norm_groups, c_ctx), num_channels=c_ctx, eps=1e-6, affine=True)
+
+        self.to_q = nn.Conv2d(c_q, inner, 1, bias=False)
+        self.to_k = nn.Conv2d(c_ctx, inner, 1, bias=False)
+        self.to_v = nn.Conv2d(c_ctx, inner, 1, bias=False)
+        self.out = nn.Conv2d(inner, c_q, 1, bias=False)
+
+        self.scale = head_dim ** -0.5
+
+    def forward(self, h: th.Tensor, ctx: th.Tensor) -> th.Tensor:
+        b, c, H, W = h.shape
+        h_ = self.norm_q(h)
+        ctx_ = self.norm_ctx(ctx)
+        if ctx_.shape[-2:] != (H, W):
+            ctx_ = F.interpolate(ctx_, size=(H, W), mode="bilinear", align_corners=False)
+
+        q = self.to_q(h_)
+        k = self.to_k(ctx_)
+        v = self.to_v(ctx_)
+
+        q = q.view(b, self.n_heads, self.head_dim, H * W).transpose(2, 3)  # [B, heads, HW, d]
+        k = k.view(b, self.n_heads, self.head_dim, H * W).transpose(2, 3)
+        v = v.view(b, self.n_heads, self.head_dim, H * W).transpose(2, 3)
+
+        attn = (q * self.scale) @ k.transpose(-2, -1)   # [B, heads, HW, HW]
+        attn = attn.softmax(dim=-1)
+
+        out = attn @ v                                   # [B, heads, HW, d]
+        out = out.transpose(2, 3).contiguous().view(b, self.n_heads * self.head_dim, H, W)
+        return self.out(out)                              # [B, C, H, W]

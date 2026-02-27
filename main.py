@@ -13,7 +13,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
             "--save_dir",
             type=str,
-            default="./save_dir",
+            default="/share/huayunpeng-local/checkpoints/",
             help="Folder to save the checkpoints and training log",
             )
     parser.add_argument(

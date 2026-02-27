@@ -10,6 +10,7 @@ from pathlib import Path
 from loguru import logger
 from omegaconf import OmegaConf
 from contextlib import nullcontext
+import matplotlib.pyplot as plt
 
 from utils import util_net
 from utils import util_image
@@ -214,8 +215,15 @@ class ResShiftSampler(BaseSampler):
         else:
             flag_pad = False
 
-        _, s_ir, p_ir = self.autoencoder.encode(y0, return_features=True)
-        
+        base_ir, s_ir, p_ir = self.autoencoder.encode(y0, return_features=True)
+
+        # 输出特征图
+        visualize_feature_maps({
+            "base_ir": base_ir,
+            "Shared_Feature": s_ir, 
+            "Private_Feature": p_ir
+        }, save_name="step_1000_check")
+
          # model kwargs
         model_kwargs = {}
         if self.model.shared_proj_16 is not None:
@@ -348,6 +356,40 @@ class ResShiftSampler(BaseSampler):
             util_image.imwrite(im_gray, im_path, chn='gray', dtype_in='uint8')
 
         self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
+
+def visualize_feature_maps(feature_tensors, save_name="debug_features", save_dir="./vis_results"):
+    """
+    feature_tensors: 字典形式，例如 {"shared": s_ir, "private": p_ir}
+    save_name: 保存的文件名前缀
+    """
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+        
+    num_features = len(feature_tensors)
+    fig, axes = plt.subplots(1, num_features, figsize=(5 * num_features, 5))
+    if num_features == 1:
+        axes = [axes]
+
+    for i, (label, tensor) in enumerate(feature_tensors.items()):
+        # 1. 这里的 tensor 形状通常是 [B, C, H, W]
+        # 我们取 batch 中的第一个样本，并在通道维度取平均值值
+        feat = tensor[0].detach().cpu().numpy()
+        heatmap = np.mean(feat, axis=0)  # [H, W]
+        
+        # 2. 归一化到 0-1 方便显示
+        heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
+        
+        # 3. 绘制热力图
+        im = axes[i].imshow(heatmap, cmap='jet') # 'jet' 常用于热力图，'viridis' 也很常用
+        axes[i].set_title(f"Feature: {label}")
+        axes[i].axis('off')
+        plt.colorbar(im, ax=axes[i], fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, f"{save_name}.png")
+    plt.savefig(save_path)
+    plt.close()
+    print(f"可视化结果已保存至: {save_path}")
 
 if __name__ == '__main__':
     pass

@@ -1,7 +1,7 @@
 trainer:
   target: trainer.TrainerDifadapter
-checkpoint_path: ./checkpoints/2026-02-05-15-16/ckpts
-checkpoint_step: 4000
+checkpoint_path: /share/huayunpeng-local/checkpoints/2026-02-26-14-47/ckpts
+checkpoint_step: 10000
 
 autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper

@@ -13,6 +13,7 @@ from omegaconf import OmegaConf
 from collections import OrderedDict
 from einops import rearrange
 from contextlib import nullcontext
+import wandb
 
 from datapipe.datasets import create_dataset
 
@@ -36,6 +37,30 @@ import torchvision.utils as vutils
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+def configs_to_dict(configs):
+    """
+    将 configs 转为 dict，供 wandb.init 使用
+    """
+    if configs is None:
+        return {}
+
+    # 如果本身就是 dict
+    if isinstance(configs, dict):
+        return configs
+
+    # 如果是 argparse.Namespace
+    if hasattr(configs, "__dict__"):
+        return vars(configs)
+
+    # 如果是 dataclass
+    try:
+        from dataclasses import asdict
+        return asdict(configs)
+    except:
+        pass
+
+    # 兜底
+    return dict(configs)
 
 class TrainerBase:
     def __init__(self, configs):
@@ -1221,6 +1246,14 @@ class TrainerDifadapter(TrainerDifIR):
             p.requires_grad = True
         for p in self.model.private_proj.parameters():
             p.requires_grad = True
+        # unfreeze unet module
+        train_keywords = [
+            "middle_block"
+        ]
+        if train_keywords:
+            for n, p in self.model.unet.named_parameters():
+                if any(k in n for k in train_keywords):
+                    p.requires_grad = True
         # unfreeze the adapter modules
         # num_params = 0
         # for name, module in self.model.named_modules():
@@ -1240,7 +1273,16 @@ class TrainerDifadapter(TrainerDifIR):
         print("private encoder trainable parameters:", sum(p.numel() for p in self.autoencoder.private_encoder.parameters() if p.requires_grad) if hasattr(self.autoencoder, "private_encoder") and self.autoencoder.private_encoder is not None else 0)
         print("Discriminator Shared trainable parameters:", sum(p.numel() for p in self.discriminator_shared.parameters() if p.requires_grad) if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None else 0)
         print("Discriminator Private trainable parameters:", sum(p.numel() for p in self.discriminator_private.parameters() if p.requires_grad) if hasattr(self, "discriminator_private") and self.discriminator_private is not None else 0)
-              
+
+        print(type(configs_to_dict))
+        print(type(self.configs))
+        #init wandb
+        wandb.init(
+                    project=getattr(self.configs, "wandb_project", "difadapter"),
+                    name=getattr(self.configs, "wandb_name", None),
+                    config=OmegaConf.to_container(self.configs, resolve=True),
+                    dir="/share/huayunpeng-local/wandb",
+                )
 
     def training_step(self, data):
         self.model.train()
@@ -1263,7 +1305,9 @@ class TrainerDifadapter(TrainerDifIR):
             self.optimizer_Dp.zero_grad(set_to_none=True)
 
         lambda_adv = float(getattr(self.configs.train.loss_coef, "lambda_adv", 0.0))
+        lambda_align = float(getattr(self.configs.train.loss_coef, "lamdba_align", 0.0))
         lambda_private = float(getattr(self.configs.train.loss_coef, "lambda_private", 0.0))
+
 
         shared_branch = bool(getattr(self.configs.train, "shared_branch", True))
         private_branch = bool(getattr(self.configs.train, "private_branch", True))
@@ -1320,11 +1364,21 @@ class TrainerDifadapter(TrainerDifIR):
                 loss_dict, z_t, z0_pred = compute_losses()
 
             # 这里你按你工程返回键选择：有的返回 loss/mse
-            diff_loss = loss_dict['loss'] if 'loss' in loss_dict else loss_dict['mse']
+            if loss_dict['mse'].dim() > 0:
+                loss_dict['mse'] = loss_dict['mse'].mean()
+            diff_loss = loss_dict['mse']
             lambda_diff = float(getattr(self.configs.train.loss_coef, "lambda_diff", 1.0))
             diff_loss = lambda_diff * diff_loss
 
             # ---------- 计算 features（IR/VIS） ----------
+            """
+            损失函数：
+            mse: diffusion噪声损失
+            loss_D: share分支的判别器损失
+            loss_adv: 对抗损失，用于特征不可分训练shared encoder
+            loss_Dp: private分支的交叉熵损失
+            loss_private: private encoder的损失
+            """
             loss_D = None
             loss_adv = None
             loss_Dp = None
@@ -1342,6 +1396,8 @@ class TrainerDifadapter(TrainerDifIR):
                 # ---- shared 分支：训练 D + 对抗 encoder ----
                 if shared_branch and (self.discriminator_shared is not None):
                      # (1) 训练 D：detach feature
+                    for p in self.discriminator_shared.parameters():
+                        p.requires_grad_(True)
                     logits_ir_D = self.discriminator_shared(s_ir.detach())
                     logits_vis_D = self.discriminator_shared(s_vis.detach())
                     loss_D = F.cross_entropy(logits_ir_D, lab_ir) + F.cross_entropy(logits_vis_D, lab_vis)
@@ -1354,23 +1410,42 @@ class TrainerDifadapter(TrainerDifIR):
                         logits_ir_E = self.discriminator_shared(s_ir)
                         logits_vis_E = self.discriminator_shared(s_vis)
                         # 取负号：最大化分类损失 -> 域不可分
-                        loss_adv = -(F.cross_entropy(logits_ir_E, lab_ir) + F.cross_entropy(logits_vis_E, lab_vis))
+                        # loss_adv = -(F.cross_entropy(logits_ir_E, lab_ir) + F.cross_entropy(logits_vis_E, lab_vis))
+                        loss_adv = kl_to_uniform(logits_ir_E) + kl_to_uniform(logits_vis_E)
+
+                        #l2 loss
+                        # s_ir_vec  = l2norm(pool_feat(s_ir.float()))
+                        # s_vis_vec = l2norm(pool_feat(s_vis.float()))
+                        # loss_align = (s_ir_vec - s_vis_vec).pow(2).sum(dim=1).mean()
+
+                        # 建议使用 L1，对异常值更鲁棒，更有利于保留边缘
+                        loss_align = F.l1_loss(s_ir, s_vis)
+
+                        loss_adv = lambda_adv * loss_adv + lambda_align * loss_align
                         
                         for p in self.discriminator_shared.parameters():
                             p.requires_grad_(True)
                     
                 # ---- private 分支（可选）----
                 if private_branch and getattr(self, "discriminator_private", None) is not None and p_ir is not None and p_vis is not None:
+                    for p in self.discriminator_private.parameters():
+                        p.requires_grad_(True)
+
                     logits_p_ir = self.discriminator_private(p_ir.detach())
                     logits_p_vis = self.discriminator_private(p_vis.detach())
                     loss_Dp = F.cross_entropy(logits_p_ir, lab_ir) + F.cross_entropy(logits_p_vis, lab_vis)
 
                     if lambda_private != 0.0:
                         # private 想“更可分”：正向 CE
+                        for p in self.discriminator_private.parameters():
+                            p.requires_grad_(False)
+
                         logits_p_ir_e = self.discriminator_private(p_ir)
                         logits_p_vis_e = self.discriminator_private(p_vis)
-                        loss_private = lambda_private * (F.cross_entropy(logits_p_ir_e, lab_ir) + F.cross_entropy(logits_p_vis_e, lab_vis))
-        
+                        loss_private = F.cross_entropy(logits_p_ir_e, lab_ir) + F.cross_entropy(logits_p_vis_e, lab_vis)
+
+                        for p in self.discriminator_private.parameters():
+                            p.requires_grad_(True)
 
             # ---------- backward：先 D，再 G ----------
             # D backward（只让 D 收到梯度）
@@ -1380,8 +1455,8 @@ class TrainerDifadapter(TrainerDifIR):
                 self.backward_step_Dp(loss_Dp, num_grad_accumulate)
 
             # G backward：diff + adv + (可选 private 可分 loss_private)
-            adv_term = (lambda_adv * loss_adv) if (loss_adv is not None and lambda_adv != 0.0) else None
-            extra_private = loss_private if (loss_private is not None) else None
+            adv_term = loss_adv if (loss_adv is not None and lambda_adv != 0.0) else None
+            extra_private = lambda_private * loss_private if (loss_private is not None) else None
 
             # 把 adv_term 和 extra_private 合并成一个 extra（保持 backward_step_G 简洁）
             extra = None
@@ -1392,6 +1467,10 @@ class TrainerDifadapter(TrainerDifIR):
             elif extra_private is not None:
                 extra = extra_private
 
+            for p in self.discriminator_shared.parameters():
+                p.requires_grad_(False)
+            for p in self.discriminator_private.parameters():
+                p.requires_grad_(False)
             self.backward_step_G(diff_loss, extra, num_grad_accumulate)
 
             # logging（你原来的 log_step_train 依赖 z_t/z0_pred，这里没拿；你如果要保留就继续用 dif_loss_wrapper 返回那套）
@@ -1403,7 +1482,11 @@ class TrainerDifadapter(TrainerDifIR):
                 # self.log_step_train(...) 需要你按原函数签名补 z_t/z0_pred（如果必须的话，你就还是用你父类 backward_step 那种 compute_losses() 返回 z_t,z0_pred 的版本）
                 # 这里先不强行调用，避免你接口对不上
                 # self.log_step_train(loss_dict, tt, micro_data, z_t, z0_pred.detach())
-                pass
+                if self.current_iters%20 == 0: 
+                    wandb.log({
+                        k: v.item() if torch.is_tensor(v) else v
+                        for k, v in loss_dict.items()
+                    }, step=self.current_iters)
         
         # ---------- step：G/D 都 step ----------
         if self.configs.train.use_amp:
@@ -1614,6 +1697,12 @@ class TrainerDifadapter(TrainerDifIR):
                 }
                 torch.save(discriminator_private_ckpt, self.ckpt_dir/f"discriminator_private_{self.current_iters}.pth")
             
+            # unet_ckpt = {
+            #     'iters_start': self.current_iters,
+            #     'state_dict': self.model.unet.state_dict(),
+            # }
+            # torch.save(unet_ckpt, self.ckpt_dir/f"unet_{self.current_iters}.pth")
+
             if self.amp_scaler is not None:
                 amp_scaler_ckpt = {
                     'iters_start': self.current_iters,
@@ -1645,6 +1734,31 @@ def replace_nan_in_batch(im_lq, im_gt):
 
 def my_worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
+
+def kl_to_uniform(logits):
+    log_p = F.log_softmax(logits, dim=1)
+    p = log_p.exp()
+    return (p * (log_p + math.log(logits.size(1)))).sum(dim=1).mean()
+
+def pool_feat(f):
+    # f: [B,C,H,W] -> [B,C]
+    return f.mean(dim=(2,3))
+def l2norm(x, eps=1e-6):
+    return x / (x.norm(dim=1, keepdim=True) + eps)
+def info_nce_loss(z_ir, z_vis, temperature=0.1):
+    """
+    z_ir: [B, D]  (already projected)
+    z_vis: [B, D]
+    """
+    z_ir = F.normalize(z_ir, dim=-1)
+    z_vis = F.normalize(z_vis, dim=-1)
+
+    logits = (z_ir @ z_vis.t()) / temperature  # [B, B]
+    labels = torch.arange(logits.size(0), device=logits.device)
+
+    loss_i2v = F.cross_entropy(logits, labels)
+    loss_v2i = F.cross_entropy(logits.t(), labels)
+    return 0.5 * (loss_i2v + loss_v2i)
 
 if __name__ == '__main__':
     from utils import util_image
