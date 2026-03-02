@@ -1224,8 +1224,8 @@ class UNetModelSwinAdagnV2(nn.Module):
         # self.inject_scale = 0.0
         if isinstance(private_proj, (dict, DictConfig)):
             self.private_proj = instantiate_from_config(private_proj)
-        if isinstance(shared_proj, (dict, DictConfig)):
-            self.shared_proj_16 = instantiate_from_config(shared_proj)
+        # if isinstance(shared_proj, (dict, DictConfig)):
+        #     self.shared_proj_16 = instantiate_from_config(shared_proj)
 
         # 每层一个 gate（强烈建议 init=0，最稳）
         # self.g6 = nn.Parameter(th.tensor(0.0))
@@ -1259,14 +1259,14 @@ class UNetModelSwinAdagnV2(nn.Module):
             h = module(h, emb)
 
             # 注入点 2：h at ii==6
-            if shared_feat is not None and (ii in [6, 7, 8]):
-                shared = self.shared_proj_16(shared_feat).type(h.dtype)
+            # if shared_feat is not None and (ii in [6, 7, 8]):
+            #     shared = self.shared_proj_16(shared_feat).type(h.dtype)
                 # proj = self.shared_proj_16(shared_feat).type(h.dtype)  # 你的注入项
                 # print("h abs mean:", h.detach().abs().mean().item())
                 # print("proj abs mean:", proj.detach().abs().mean().item())
                 # print("proj/h ratio:", (proj.detach().abs().mean() / (h.detach().abs().mean() + 1e-8)).item())
-                shared = th.zeros_like(shared)    #shared 置零
-                h = h + shared
+                # shared = th.zeros_like(shared)    #shared 置零
+                # h = h + shared
             # if (shared_feat is not None) and (ii in [6, 7, 8]):
             #     shared = self.shared_proj_16(shared_feat).type(h.dtype)  # [B,768,16,16] -> ctx
 

@@ -130,10 +130,10 @@ class BaseSampler:
             params['base_ae'] = self.autoencoder
             autoencoder_wrapper = util_common.get_obj_from_str(self.configs.autoencoderwrapper.target)(**params)
             autoencoder_wrapper = autoencoder_wrapper.cuda()
-            if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None and self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None) is not None:
-                ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.ckpt_path
-                self.write_log(f'Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...')
-                self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path)
+            # if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None and self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None) is not None:
+            #     ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.ckpt_path
+            #     self.write_log(f'Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...')
+            #     self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path)
             if self.configs.autoencoderwrapper.params.get("private_encoder", None) is not None and self.configs.autoencoderwrapper.params.private_encoder.get("ckpt_path", None) is not None:
                 ckpt_path = self.configs.autoencoderwrapper.params.private_encoder.ckpt_path
                 self.write_log(f'Loading AutoEncoder Wrapper private encoder from {ckpt_path}...')
@@ -157,10 +157,10 @@ class BaseSampler:
                 ckpt_path = self.configs.unet_wrapper.params.private_proj.ckpt_path
                 self.write_log(f'Loading Unet Wrapper private projector from {ckpt_path}...')
                 self.load_model(unet_wrapper.private_proj, ckpt_path)
-            if self.configs.unet_wrapper.params.get("shared_proj", None) is not None and self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None) is not None:
-                ckpt_path = self.configs.unet_wrapper.params.shared_proj.ckpt_path
-                self.write_log(f'Loading Unet Wrapper shared projector from {ckpt_path}...')
-                self.load_model(unet_wrapper.shared_proj_16, ckpt_path)
+            # if self.configs.unet_wrapper.params.get("shared_proj", None) is not None and self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None) is not None:
+            #     ckpt_path = self.configs.unet_wrapper.params.shared_proj.ckpt_path
+            #     self.write_log(f'Loading Unet Wrapper shared projector from {ckpt_path}...')
+            #     self.load_model(unet_wrapper.shared_proj_16, ckpt_path)
             self.model = unet_wrapper.eval()
 
     def load_model_lora(self, model, ckpt_path=None, tag='model'):
@@ -215,19 +215,19 @@ class ResShiftSampler(BaseSampler):
         else:
             flag_pad = False
 
-        base_ir, s_ir, p_ir = self.autoencoder.encode(y0, return_features=True)
+        _, p_ir = self.autoencoder.encode(y0, return_features=True)
 
         # 输出特征图
-        visualize_feature_maps({
-            "base_ir": base_ir,
-            "Shared_Feature": s_ir, 
-            "Private_Feature": p_ir
-        }, save_name="step_1000_check")
+        # visualize_feature_maps({
+        #     "base_ir": base_ir,
+        #     "Shared_Feature": s_ir, 
+        #     "Private_Feature": p_ir
+        # }, save_name="step_1000_check")
 
          # model kwargs
         model_kwargs = {}
-        if self.model.shared_proj_16 is not None:
-            model_kwargs['shared_feat'] = s_ir
+        # if self.model.shared_proj_16 is not None:
+        #     model_kwargs['shared_feat'] = s_ir
         if self.model.private_proj is not None:
             model_kwargs['private_feat'] = p_ir
         if self.configs.model.params.cond_lq:

@@ -60,8 +60,8 @@ def get_configs(args):
         configs = OmegaConf.load('./configs/bicx4_swinunet_lpips_infer.yaml')
         assert args.scale == 4, 'We only support the 4x super-resolution now!'
         ckpt_url = _LINK[args.task]
-        ckpt_path = ckpt_dir / f'resshift_{args.task}x{args.scale}_s{_STEP[args.task]}.pth'
-        # ckpt_path = Path('/share/huayunpeng-nfs/image_enhancement/ResShift/checkpoints/2026-02-24-13-29/ckpts/unet_4000.pth')
+        # ckpt_path = ckpt_dir / f'resshift_{args.task}x{args.scale}_s{_STEP[args.task]}.pth'
+        ckpt_path = Path('/share/huayunpeng-local/checkpoints/2026-03-01-18-58/ckpts/unet_2000.pth')
         vqgan_url = _LINK['vqgan']
         vqgan_path = ckpt_dir / f'autoencoder_vq_f4.pth'
     else:

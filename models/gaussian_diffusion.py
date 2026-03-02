@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import torch as th
 import torch.nn.functional as F
+import kornia.filters as KF
 
 from .basic_ops import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
@@ -440,6 +441,7 @@ class GaussianDiffusion:
         if device is None:
             device = next(model.parameters()).device
         z_y = self.encode_first_stage(y, first_stage_model, up_sample=True)
+        z_y = z_y + KF.sobel(z_y)
 
         # generating noise
         if noise is None:
@@ -553,6 +555,7 @@ class GaussianDiffusion:
             model_kwargs = {}
 
         z_y = self.encode_first_stage(y, first_stage_model, up_sample=True)
+        z_y = z_y + KF.sobel(z_y)
         z_start = self.encode_first_stage(x_start, first_stage_model, up_sample=False)
 
         if noise is None:

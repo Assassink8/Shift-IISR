@@ -1120,12 +1120,12 @@ class TrainerDifadapter(TrainerDifIR):
             )(**params)
             autoencoder_wrapper = autoencoder_wrapper.cuda()
 
-            if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None:
-                ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None)
-                if ckpt_path is not None:
-                    if self.rank == 0:
-                        self.logger.info(f"Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...")
-                    self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path, tag="shared_encoder")
+            # if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None:
+            #     ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None)
+            #     if ckpt_path is not None:
+            #         if self.rank == 0:
+            #             self.logger.info(f"Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...")
+            #         self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path, tag="shared_encoder")
 
             if self.configs.autoencoderwrapper.params.get("private_encoder", None) is not None:
                 ckpt_path = self.configs.autoencoderwrapper.params.private_encoder.get("ckpt_path", None)
@@ -1153,31 +1153,31 @@ class TrainerDifadapter(TrainerDifIR):
             self.autoencoder = autoencoder_wrapper
 
         # load discriminator if provided
-        if self.configs.get("discriminator_shared", None) is not None:
-            params = OmegaConf.to_container(
-                self.configs.discriminator_shared.params, resolve=True
-            )
-            discriminator_shared = util_common.get_obj_from_str(
-                self.configs.discriminator_shared.target
-            )(**params)
-            discriminator_shared = discriminator_shared.cuda()
+        # if self.configs.get("discriminator_shared", None) is not None:
+        #     params = OmegaConf.to_container(
+        #         self.configs.discriminator_shared.params, resolve=True
+        #     )
+        #     discriminator_shared = util_common.get_obj_from_str(
+        #         self.configs.discriminator_shared.target
+        #     )(**params)
+        #     discriminator_shared = discriminator_shared.cuda()
 
-            ckpt_path = self.configs.discriminator_shared.get("ckpt_path", None)
-            if ckpt_path is not None:
-                if self.rank == 0:
-                    self.logger.info(f"Loading Discriminator Shared from {ckpt_path}...")
-                self.load_model(discriminator_shared, ckpt_path, tag="discriminator_shared")
+        #     ckpt_path = self.configs.discriminator_shared.get("ckpt_path", None)
+        #     if ckpt_path is not None:
+        #         if self.rank == 0:
+        #             self.logger.info(f"Loading Discriminator Shared from {ckpt_path}...")
+        #         self.load_model(discriminator_shared, ckpt_path, tag="discriminator_shared")
 
-            if self.configs.train.compile.flag:
-                if self.rank == 0:
-                    self.logger.info("Begin compiling discriminator shared...")
-                discriminator_shared = torch.compile(
-                    discriminator_shared, mode=self.configs.train.compile.mode
-                )
-                if self.rank == 0:
-                    self.logger.info("Compiling Done")
+        #     if self.configs.train.compile.flag:
+        #         if self.rank == 0:
+        #             self.logger.info("Begin compiling discriminator shared...")
+        #         discriminator_shared = torch.compile(
+        #             discriminator_shared, mode=self.configs.train.compile.mode
+        #         )
+        #         if self.rank == 0:
+        #             self.logger.info("Compiling Done")
 
-            self.discriminator_shared = discriminator_shared
+        #     self.discriminator_shared = discriminator_shared
 
         # load private discriminator if provided
         if self.configs.get("discriminator_private", None) is not None:
@@ -1217,12 +1217,12 @@ class TrainerDifadapter(TrainerDifIR):
                 self.configs.unet_wrapper.target
             )(**params)
             unet_wrapper = unet_wrapper.cuda()
-            if self.configs.unet_wrapper.params.get("shared_proj", None) is not None:
-                ckpt_path = self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None)
-                if ckpt_path is not None:
-                    if self.rank == 0:
-                        self.logger.info(f"Loading Unet Wrapper shared projector from {ckpt_path}...")
-                    self.load_model(unet_wrapper.shared_proj_16, ckpt_path, tag="unet_shared_proj")
+            # if self.configs.unet_wrapper.params.get("shared_proj", None) is not None:
+            #     ckpt_path = self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None)
+            #     if ckpt_path is not None:
+            #         if self.rank == 0:
+            #             self.logger.info(f"Loading Unet Wrapper shared projector from {ckpt_path}...")
+            #         self.load_model(unet_wrapper.shared_proj_16, ckpt_path, tag="unet_shared_proj")
             if self.configs.unet_wrapper.params.get("private_proj", None) is not None:
                 ckpt_path = self.configs.unet_wrapper.params.private_proj.get("ckpt_path", None)
                 if ckpt_path is not None:
@@ -1242,13 +1242,17 @@ class TrainerDifadapter(TrainerDifIR):
         # freeze the diffusion model
         self.freeze_model(self.model)
         # 解冻projector
-        for p in self.model.shared_proj_16.parameters():
-            p.requires_grad = True
+        # for p in self.model.shared_proj_16.parameters():
+        #     p.requires_grad = True
         for p in self.model.private_proj.parameters():
             p.requires_grad = True
         # unfreeze unet module
         train_keywords = [
-            "middle_block"
+            # "middle_block"
+            "input_blocks[0]",
+            "input_blocks[1]",
+            "input_blocks[2]",
+
         ]
         if train_keywords:
             for n, p in self.model.unet.named_parameters():
@@ -1269,9 +1273,9 @@ class TrainerDifadapter(TrainerDifIR):
         print("Diffusion model trainable parameters:", sum(p.numel() for p in self.model.unet.parameters() if p.requires_grad) if hasattr(self.model, "unet") and self.model.unet is not None else 0)
         print("AutoEncoder Wrapper trainable parameters:", sum(p.numel() for p in self.autoencoder.parameters() if p.requires_grad))
         print("Autoencoder base ae trainable parameters:", sum(p.numel() for p in self.autoencoder.base_ae.parameters() if p.requires_grad) if hasattr(self.autoencoder, "base_ae") and self.autoencoder.base_ae is not None else 0)
-        print("shared encoder trainable parameters:", sum(p.numel() for p in self.autoencoder.shared_encoder.parameters() if p.requires_grad) if hasattr(self.autoencoder, "shared_encoder") and self.autoencoder.shared_encoder is not None else 0)
+        # print("shared encoder trainable parameters:", sum(p.numel() for p in self.autoencoder.shared_encoder.parameters() if p.requires_grad) if hasattr(self.autoencoder, "shared_encoder") and self.autoencoder.shared_encoder is not None else 0)
         print("private encoder trainable parameters:", sum(p.numel() for p in self.autoencoder.private_encoder.parameters() if p.requires_grad) if hasattr(self.autoencoder, "private_encoder") and self.autoencoder.private_encoder is not None else 0)
-        print("Discriminator Shared trainable parameters:", sum(p.numel() for p in self.discriminator_shared.parameters() if p.requires_grad) if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None else 0)
+        # print("Discriminator Shared trainable parameters:", sum(p.numel() for p in self.discriminator_shared.parameters() if p.requires_grad) if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None else 0)
         print("Discriminator Private trainable parameters:", sum(p.numel() for p in self.discriminator_private.parameters() if p.requires_grad) if hasattr(self, "discriminator_private") and self.discriminator_private is not None else 0)
 
         print(type(configs_to_dict))
@@ -1288,8 +1292,8 @@ class TrainerDifadapter(TrainerDifIR):
         self.model.train()
         if hasattr(self, "autoencoder") and self.autoencoder is not None:
             self.autoencoder.train()
-        if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None:
-            self.discriminator_shared.train()
+        # if hasattr(self, "discriminator_shared") and self.discriminator_shared is not None:
+        #     self.discriminator_shared.train()
         if hasattr(self, "discriminator_private") and getattr(self, "discriminator_private") is not None:
             self.discriminator_private.train()
 
@@ -1299,17 +1303,17 @@ class TrainerDifadapter(TrainerDifIR):
 
        # 清梯度：G/D 都清
         self.optimizer.zero_grad(set_to_none=True)
-        if getattr(self, "optimizer_D", None) is not None:
-            self.optimizer_D.zero_grad(set_to_none=True)
+        # if getattr(self, "optimizer_D", None) is not None:
+        #     self.optimizer_D.zero_grad(set_to_none=True)
         if getattr(self, "optimizer_Dp", None) is not None:
             self.optimizer_Dp.zero_grad(set_to_none=True)
 
-        lambda_adv = float(getattr(self.configs.train.loss_coef, "lambda_adv", 0.0))
-        lambda_align = float(getattr(self.configs.train.loss_coef, "lamdba_align", 0.0))
+        # lambda_adv = float(getattr(self.configs.train.loss_coef, "lambda_adv", 0.0))
+        # lambda_align = float(getattr(self.configs.train.loss_coef, "lamdba_align", 0.0))
         lambda_private = float(getattr(self.configs.train.loss_coef, "lambda_private", 0.0))
 
 
-        shared_branch = bool(getattr(self.configs.train, "shared_branch", True))
+        # shared_branch = bool(getattr(self.configs.train, "shared_branch", True))
         private_branch = bool(getattr(self.configs.train, "private_branch", True))
 
         for jj in range(0, current_batchsize, micro_batchsize):
@@ -1331,11 +1335,11 @@ class TrainerDifadapter(TrainerDifIR):
                     device=micro_data['gt'].device,
                 )
             
-            _, s_ir, p_ir = self.autoencoder.encode(micro_data["lq"], return_features=True)
+            _, p_ir = self.autoencoder.encode(micro_data["lq"], return_features=True)
             # model kwargs
             model_kwargs = {}
-            if shared_branch:
-                model_kwargs['shared_feat'] = s_ir
+            # if shared_branch:
+            #     model_kwargs['shared_feat'] = s_ir
             if private_branch:
                 model_kwargs['private_feat'] = p_ir
             if self.configs.model.params.cond_lq:
@@ -1379,52 +1383,52 @@ class TrainerDifadapter(TrainerDifIR):
             loss_Dp: private分支的交叉熵损失
             loss_private: private encoder的损失
             """
-            loss_D = None
-            loss_adv = None
+            # loss_D = None
+            # loss_adv = None
             loss_Dp = None
             loss_private = None
 
             if 'vis_lq' in micro_data:
-                _, s_vis, p_vis = self.autoencoder.encode(micro_data["vis_lq"], return_features=True)
+                _, p_vis = self.autoencoder.encode(micro_data["vis_lq"], return_features=True)
 
                 # print("shared_ir shape:", s_ir.shape)
                 # print("private_ir shape:", p_ir.shape)
 
-                lab_ir = torch.zeros(s_ir.size(0), dtype=torch.long, device=s_ir.device)  # 0=IR
-                lab_vis = torch.ones (s_vis.size(0), dtype=torch.long, device=s_vis.device)  # 1=VIS
+                lab_ir = torch.zeros(p_ir.size(0), dtype=torch.long, device=p_ir.device)  # 0=IR
+                lab_vis = torch.ones (p_vis.size(0), dtype=torch.long, device=p_vis.device)  # 1=VIS
 
                 # ---- shared 分支：训练 D + 对抗 encoder ----
-                if shared_branch and (self.discriminator_shared is not None):
-                     # (1) 训练 D：detach feature
-                    for p in self.discriminator_shared.parameters():
-                        p.requires_grad_(True)
-                    logits_ir_D = self.discriminator_shared(s_ir.detach())
-                    logits_vis_D = self.discriminator_shared(s_vis.detach())
-                    loss_D = F.cross_entropy(logits_ir_D, lab_ir) + F.cross_entropy(logits_vis_D, lab_vis)
+                # if shared_branch and (self.discriminator_shared is not None):
+                #      # (1) 训练 D：detach feature
+                #     for p in self.discriminator_shared.parameters():
+                #         p.requires_grad_(True)
+                #     logits_ir_D = self.discriminator_shared(s_ir.detach())
+                #     logits_vis_D = self.discriminator_shared(s_vis.detach())
+                #     loss_D = F.cross_entropy(logits_ir_D, lab_ir) + F.cross_entropy(logits_vis_D, lab_vis)
                 
-                    # (2) 训练 encoder（shared）骗 D：冻结 D 参数，不 detach feature
-                    if lambda_adv != 0.0:
-                        for p in self.discriminator_shared.parameters():
-                            p.requires_grad_(False)
+                #     # (2) 训练 encoder（shared）骗 D：冻结 D 参数，不 detach feature
+                #     if lambda_adv != 0.0:
+                #         for p in self.discriminator_shared.parameters():
+                #             p.requires_grad_(False)
 
-                        logits_ir_E = self.discriminator_shared(s_ir)
-                        logits_vis_E = self.discriminator_shared(s_vis)
-                        # 取负号：最大化分类损失 -> 域不可分
-                        # loss_adv = -(F.cross_entropy(logits_ir_E, lab_ir) + F.cross_entropy(logits_vis_E, lab_vis))
-                        loss_adv = kl_to_uniform(logits_ir_E) + kl_to_uniform(logits_vis_E)
+                #         logits_ir_E = self.discriminator_shared(s_ir)
+                #         logits_vis_E = self.discriminator_shared(s_vis)
+                #         # 取负号：最大化分类损失 -> 域不可分
+                #         # loss_adv = -(F.cross_entropy(logits_ir_E, lab_ir) + F.cross_entropy(logits_vis_E, lab_vis))
+                #         loss_adv = kl_to_uniform(logits_ir_E) + kl_to_uniform(logits_vis_E)
 
-                        #l2 loss
-                        # s_ir_vec  = l2norm(pool_feat(s_ir.float()))
-                        # s_vis_vec = l2norm(pool_feat(s_vis.float()))
-                        # loss_align = (s_ir_vec - s_vis_vec).pow(2).sum(dim=1).mean()
+                #         #l2 loss
+                #         # s_ir_vec  = l2norm(pool_feat(s_ir.float()))
+                #         # s_vis_vec = l2norm(pool_feat(s_vis.float()))
+                #         # loss_align = (s_ir_vec - s_vis_vec).pow(2).sum(dim=1).mean()
 
-                        # 建议使用 L1，对异常值更鲁棒，更有利于保留边缘
-                        loss_align = F.l1_loss(s_ir, s_vis)
+                #         # 建议使用 L1，对异常值更鲁棒，更有利于保留边缘
+                #         loss_align = F.l1_loss(s_ir, s_vis)
 
-                        loss_adv = lambda_adv * loss_adv + lambda_align * loss_align
+                #         loss_adv = lambda_adv * loss_adv + lambda_align * loss_align
                         
-                        for p in self.discriminator_shared.parameters():
-                            p.requires_grad_(True)
+                #         for p in self.discriminator_shared.parameters():
+                #             p.requires_grad_(True)
                     
                 # ---- private 分支（可选）----
                 if private_branch and getattr(self, "discriminator_private", None) is not None and p_ir is not None and p_vis is not None:
@@ -1449,26 +1453,26 @@ class TrainerDifadapter(TrainerDifIR):
 
             # ---------- backward：先 D，再 G ----------
             # D backward（只让 D 收到梯度）
-            if loss_D is not None:
-                self.backward_step_D(loss_D, num_grad_accumulate)
+            # if loss_D is not None:
+            #     self.backward_step_D(loss_D, num_grad_accumulate)
             if loss_Dp is not None:
                 self.backward_step_Dp(loss_Dp, num_grad_accumulate)
 
             # G backward：diff + adv + (可选 private 可分 loss_private)
-            adv_term = loss_adv if (loss_adv is not None and lambda_adv != 0.0) else None
+            # adv_term = loss_adv if (loss_adv is not None and lambda_adv != 0.0) else None
             extra_private = lambda_private * loss_private if (loss_private is not None) else None
 
             # 把 adv_term 和 extra_private 合并成一个 extra（保持 backward_step_G 简洁）
             extra = None
-            if adv_term is not None and extra_private is not None:
-                extra = adv_term + extra_private
-            elif adv_term is not None:
-                extra = adv_term
-            elif extra_private is not None:
+            # if adv_term is not None and extra_private is not None:
+            #     extra = adv_term + extra_private
+            # elif adv_term is not None:
+            #     extra = adv_term
+            if extra_private is not None:
                 extra = extra_private
 
-            for p in self.discriminator_shared.parameters():
-                p.requires_grad_(False)
+            # for p in self.discriminator_shared.parameters():
+            #     p.requires_grad_(False)
             for p in self.discriminator_private.parameters():
                 p.requires_grad_(False)
             self.backward_step_G(diff_loss, extra, num_grad_accumulate)
@@ -1476,8 +1480,8 @@ class TrainerDifadapter(TrainerDifIR):
             # logging（你原来的 log_step_train 依赖 z_t/z0_pred，这里没拿；你如果要保留就继续用 dif_loss_wrapper 返回那套）
             if last_batch:
                 # 你可以把 loss_dict 加上 adv/D 再 log
-                if loss_adv is not None: loss_dict["adv_loss"] = loss_adv.detach()
-                if loss_D is not None:   loss_dict["loss_D"] = loss_D.detach()
+                # if loss_adv is not None: loss_dict["adv_loss"] = loss_adv.detach()
+                # if loss_D is not None:   loss_dict["loss_D"] = loss_D.detach()
                 if loss_Dp is not None:  loss_dict["loss_Dp"] = loss_Dp.detach()
                 # self.log_step_train(...) 需要你按原函数签名补 z_t/z0_pred（如果必须的话，你就还是用你父类 backward_step 那种 compute_losses() 返回 z_t,z0_pred 的版本）
                 # 这里先不强行调用，避免你接口对不上
@@ -1494,16 +1498,16 @@ class TrainerDifadapter(TrainerDifIR):
             self.amp_scaler.step(self.optimizer)
             self.amp_scaler.update()
             # D
-            if self.optimizer_D is not None and loss_D is not None:
-                self.amp_scaler_D.step(self.optimizer_D)
-                self.amp_scaler_D.update()
+            # if self.optimizer_D is not None and loss_D is not None:
+            #     self.amp_scaler_D.step(self.optimizer_D)
+            #     self.amp_scaler_D.update()
             if getattr(self, "optimizer_Dp", None) is not None and loss_Dp is not None:
                 self.amp_scaler_Dp.step(self.optimizer_Dp)
                 self.amp_scaler_Dp.update()
         else:
             self.optimizer.step()
-            if self.optimizer_D is not None and loss_D is not None:
-                self.optimizer_D.step()
+            # if self.optimizer_D is not None and loss_D is not None:
+            #     self.optimizer_D.step()
             if getattr(self, "optimizer_Dp", None) is not None and loss_Dp is not None:
                 self.optimizer_Dp.step()
 
@@ -1517,8 +1521,8 @@ class TrainerDifadapter(TrainerDifIR):
         # scheduler（如果你每 step 调一次）
         if getattr(self, "lr_scheduler", None) is not None:
             self.lr_scheduler.step()
-        if getattr(self, "lr_scheduler_D", None) is not None:
-            self.lr_scheduler_D.step()
+        # if getattr(self, "lr_scheduler_D", None) is not None:
+        #     self.lr_scheduler_D.step()
         if getattr(self, "lr_scheduler_Dp", None) is not None:
             self.lr_scheduler_Dp.step()
 
@@ -1616,19 +1620,19 @@ class TrainerDifadapter(TrainerDifIR):
 
         return loss.detach()
 
-    def backward_step_D(self, loss_D, num_grad_accumulate):
-        if loss_D is None or self.optimizer_D is None:
-            return None
-        loss = loss_D
-        if loss.dim() > 0:
-            loss = loss.mean()
-        loss = loss / num_grad_accumulate
+    # def backward_step_D(self, loss_D, num_grad_accumulate):
+    #     if loss_D is None or self.optimizer_D is None:
+    #         return None
+    #     loss = loss_D
+    #     if loss.dim() > 0:
+    #         loss = loss.mean()
+    #     loss = loss / num_grad_accumulate
 
-        if self.amp_scaler_D is None:
-            loss.backward()
-        else:
-            self.amp_scaler_D.scale(loss).backward()
-        return loss.detach()
+    #     if self.amp_scaler_D is None:
+    #         loss.backward()
+    #     else:
+    #         self.amp_scaler_D.scale(loss).backward()
+    #     return loss.detach()
 
     def backward_step_Dp(self, loss_Dp, num_grad_accumulate):
         if loss_Dp is None or self.optimizer_Dp is None:
@@ -1649,13 +1653,13 @@ class TrainerDifadapter(TrainerDifIR):
 
     def save_ckpt(self):
         if self.rank == 0:
-            shared_proj_ckpt = {
-                    'iters_start': self.current_iters,
-                    # 'log_step': {phase:self.log_step[phase] for phase in ['train', 'val']},
-                    # 'log_step_img': {phase:self.log_step_img[phase] for phase in ['train', 'val']},
-                    'state_dict': self.model.shared_proj_16.state_dict(),  #unet
-                    }
-            torch.save(shared_proj_ckpt, self.ckpt_dir/f"shared_proj_{self.current_iters}.pth")
+            # shared_proj_ckpt = {
+            #         'iters_start': self.current_iters,
+            #         # 'log_step': {phase:self.log_step[phase] for phase in ['train', 'val']},
+            #         # 'log_step_img': {phase:self.log_step_img[phase] for phase in ['train', 'val']},
+            #         'state_dict': self.model.shared_proj_16.state_dict(),  #unet
+            #         }
+            # torch.save(shared_proj_ckpt, self.ckpt_dir/f"shared_proj_{self.current_iters}.pth")
             private_proj_ckpt = {
                     'iters_start': self.current_iters,
                     # 'log_step': {phase:self.log_step[phase] for phase in ['train', 'val']},
@@ -1665,12 +1669,12 @@ class TrainerDifadapter(TrainerDifIR):
             torch.save(private_proj_ckpt, self.ckpt_dir/f"private_proj_{self.current_iters}.pth")
             # 保存encoder
             if getattr(self, "autoencoder", None) is not None:
-                if getattr(self.autoencoder, "shared_encoder", None) is not None:
-                    shared_encoder_ckpt = {
-                        'iters_start': self.current_iters,
-                        'state_dict': self.autoencoder.shared_encoder.state_dict(),
-                    }
-                    torch.save(shared_encoder_ckpt, self.ckpt_dir/f"shared_encoder_{self.current_iters}.pth")
+                # if getattr(self.autoencoder, "shared_encoder", None) is not None:
+                #     shared_encoder_ckpt = {
+                #         'iters_start': self.current_iters,
+                #         'state_dict': self.autoencoder.shared_encoder.state_dict(),
+                #     }
+                #     torch.save(shared_encoder_ckpt, self.ckpt_dir/f"shared_encoder_{self.current_iters}.pth")
                 if getattr(self.autoencoder, "private_encoder", None) is not None:
                     private_encoder_ckpt = {
                         'iters_start': self.current_iters,
@@ -1684,12 +1688,12 @@ class TrainerDifadapter(TrainerDifIR):
                     }
                     torch.save(decoder_adapter_ckpt, self.ckpt_dir/f"decoder_adapter_{self.current_iters}.pth")
             # 保存判别器
-            if getattr(self, "discriminator_shared", None) is not None:
-                discriminator_shared_ckpt = {
-                    'iters_start': self.current_iters,
-                    'state_dict': self.discriminator_shared.state_dict(),
-                }
-                torch.save(discriminator_shared_ckpt, self.ckpt_dir/f"discriminator_shared_{self.current_iters}.pth")
+            # if getattr(self, "discriminator_shared", None) is not None:
+            #     discriminator_shared_ckpt = {
+            #         'iters_start': self.current_iters,
+            #         'state_dict': self.discriminator_shared.state_dict(),
+            #     }
+            #     torch.save(discriminator_shared_ckpt, self.ckpt_dir/f"discriminator_shared_{self.current_iters}.pth")
             if getattr(self, "discriminator_private", None) is not None:
                 discriminator_private_ckpt = {
                     'iters_start': self.current_iters,
@@ -1697,11 +1701,11 @@ class TrainerDifadapter(TrainerDifIR):
                 }
                 torch.save(discriminator_private_ckpt, self.ckpt_dir/f"discriminator_private_{self.current_iters}.pth")
             
-            # unet_ckpt = {
-            #     'iters_start': self.current_iters,
-            #     'state_dict': self.model.unet.state_dict(),
-            # }
-            # torch.save(unet_ckpt, self.ckpt_dir/f"unet_{self.current_iters}.pth")
+            unet_ckpt = {
+                'iters_start': self.current_iters,
+                'state_dict': self.model.unet.state_dict(),
+            }
+            torch.save(unet_ckpt, self.ckpt_dir/f"unet_{self.current_iters}.pth")
 
             if self.amp_scaler is not None:
                 amp_scaler_ckpt = {

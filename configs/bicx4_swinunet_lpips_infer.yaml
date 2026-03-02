@@ -1,20 +1,20 @@
 trainer:
   target: trainer.TrainerDifadapter
-checkpoint_path: /share/huayunpeng-local/checkpoints/2026-02-26-14-47/ckpts
-checkpoint_step: 10000
+checkpoint_path: /share/huayunpeng-local/checkpoints/2026-03-01-19-30/ckpts
+checkpoint_step: 2000
 
 autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
   params:
     freeze_base: True
-    shared_encoder:
-      target: ldm.models.shared_encoder.SharedEncoder
-      ckpt_path: ${checkpoint_path}/shared_encoder_${checkpoint_step}.pth
-      params:
-        in_channels: 3
-        context_dim: 768
-        base_channels: 64
-        num_blocks: 2
+    # shared_encoder:
+    #   target: ldm.models.shared_encoder.SharedEncoder
+    #   ckpt_path: ${checkpoint_path}/shared_encoder_${checkpoint_step}.pth
+    #   params:
+    #     in_channels: 3
+    #     context_dim: 768
+    #     base_channels: 64
+    #     num_blocks: 2
         # act: None
     private_encoder: 
       target: ldm.models.private_encoder.PrivateEncoder
@@ -29,13 +29,13 @@ autoencoderwrapper:
 
     decoder_adapter: null
 
-discriminator_shared:
-  target: ldm.models.discriminator.DomainDiscriminatorS
-  ckpt_path: ~
-  params:
-    in_ch: 768
-    hidden: 256
-    num_classes: 2
+# discriminator_shared:
+#   target: ldm.models.discriminator.DomainDiscriminatorS
+#   ckpt_path: ~
+#   params:
+#     in_ch: 768
+#     hidden: 256
+#     num_classes: 2
 
 discriminator_private:
   target: ldm.models.discriminator.DomainDiscriminatorP
@@ -81,12 +81,12 @@ unet_wrapper:
       params:
         in_dim: 256
         time_embed_dim: 640
-    shared_proj:
-      target: models.unet_adagn.SharedProjector
-      ckpt_path: ${checkpoint_path}/shared_proj_${checkpoint_step}.pth
-      params:
-        in_ch: 768
-        out_ch: 320
+    # shared_proj:
+    #   target: models.unet_adagn.SharedProjector
+    #   ckpt_path: ${checkpoint_path}/shared_proj_${checkpoint_step}.pth
+    #   params:
+    #     in_ch: 768
+    #     out_ch: 320
 
 
 model:
@@ -213,7 +213,7 @@ train:
   use_amp: True                # amp training
   seed: 123456                 # random seed
   global_seeding: False
-  shared_branch: True
+  shared_branch: False
   private_branch: True
   # model compile
   compile:

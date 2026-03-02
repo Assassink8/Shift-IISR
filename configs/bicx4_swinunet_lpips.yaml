@@ -6,14 +6,14 @@ autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
   params:
     freeze_base: True
-    shared_encoder:
-      target: ldm.models.shared_encoder.SharedEncoder
-      ckpt_path: ~
-      params:
-        in_channels: 3
-        context_dim: 768
-        base_channels: 64
-        num_blocks: 2
+    # shared_encoder:
+    #   target: ldm.models.shared_encoder.SharedEncoder
+    #   ckpt_path: ~
+    #   params:
+    #     in_channels: 3
+    #     context_dim: 768
+    #     base_channels: 64
+    #     num_blocks: 2
         # act: None
     private_encoder: 
       target: ldm.models.private_encoder.PrivateEncoder
@@ -28,13 +28,13 @@ autoencoderwrapper:
 
     decoder_adapter: null
 
-discriminator_shared:
-  target: ldm.models.discriminator.DomainDiscriminatorS
-  ckpt_path: ~
-  params:
-    in_ch: 768
-    hidden: 256
-    num_classes: 2
+# discriminator_shared:
+#   target: ldm.models.discriminator.DomainDiscriminatorS
+#   ckpt_path: ~
+#   params:
+#     in_ch: 768
+#     hidden: 256
+#     num_classes: 2
 
 discriminator_private:
   target: ldm.models.discriminator.DomainDiscriminatorP
@@ -80,12 +80,12 @@ unet_wrapper:
       params:
         in_dim: 256
         time_embed_dim: 640
-    shared_proj:
-      target: models.unet_adagn.SharedProjector
-      ckpt_path: ~
-      params:
-        in_ch: 768
-        out_ch: 320
+    # shared_proj:
+    #   target: models.unet_adagn.SharedProjector
+    #   ckpt_path: ~
+    #   params:
+    #     in_ch: 768
+    #     out_ch: 320
 
 model:
   target: models.unet_adagn.UNetModelSwin
@@ -190,10 +190,10 @@ train:
   # optimization settings
   weight_decay: 0               
   ema_rate: 0.999
-  iterations: 10000            # total iterations
+  iterations: 2000           # total iterations
   train_diffusion: false
   # save logging
-  save_freq: 2000              # save model every xxx iters           
+  save_freq: 1000              # save model every xxx iters           
   log_freq: [200, 2000, 1]         # [training loss, training images, val images]
   loss_coef: 
     lambda_diff: 1.0
@@ -212,7 +212,7 @@ train:
   use_amp: True                # amp training
   seed: 123456                 # random seed
   global_seeding: False
-  shared_branch: True
+  shared_branch: False
   private_branch: True
   # model compile
   compile:

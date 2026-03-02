@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Optional, Tuple, Any
 from omegaconf import DictConfig
 
+
 import loralib as lora
 
 from ldm.modules.diffusionmodules.model import Encoder, Decoder
@@ -89,9 +90,9 @@ class VQModelTorchWrapper(nn.Module):
         if isinstance(base_ae, (dict, DictConfig)):
             base_ae = instantiate_from_config(base_ae)
         self.base_ae = base_ae
-        if isinstance(shared_encoder, (dict, DictConfig)):
-            shared_encoder = instantiate_from_config(shared_encoder)
-        self.shared_encoder = shared_encoder
+        # if isinstance(shared_encoder, (dict, DictConfig)):
+        #     shared_encoder = instantiate_from_config(shared_encoder)
+        # self.shared_encoder = shared_encoder
         if isinstance(private_encoder, (dict, DictConfig)):
             private_encoder = instantiate_from_config(private_encoder)
         self.private_encoder = private_encoder
@@ -110,9 +111,9 @@ class VQModelTorchWrapper(nn.Module):
         return self
     
     def requires_grad_shared(self, flag: bool):
-        if self.shared_encoder is not None:
-            for p in self.shared_encoder.parameters():
-                p.requires_grad = flag
+        # if self.shared_encoder is not None:
+        #     for p in self.shared_encoder.parameters():
+        #         p.requires_grad = flag
         if self.private_encoder is not None:
             for p in self.private_encoder.parameters():
                 p.requires_grad  = flag
@@ -125,12 +126,12 @@ class VQModelTorchWrapper(nn.Module):
                p = private_encoder(h) if provided
         """
         h = self.base_ae.encode(x, *args, **kwargs)
-        if self.shared_encoder is not None:
-            s = self.shared_encoder(h)
+        # if self.shared_encoder is not None:
+        #     s = self.shared_encoder(h)
         if self.private_encoder is not None:
             p = self.private_encoder(h)
         if return_features:
-            return h, s, p
+            return h, p
         return h
     
     def decode(self, h: torch.Tensor, force_not_quantize: bool = False, *args, **kwargs) -> torch.Tensor:
