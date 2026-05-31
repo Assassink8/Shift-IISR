@@ -140,6 +140,8 @@ class GaussianDiffusion:
         self.latent_flag = latent_flag
         self.sf = sf
 
+        # self.edge_scale = nn.Parameter(th.tensor(-2.0))  # sigmoid后≈0.12，初始很弱更稳
+
         # Use float64 for accuracy.
         self.sqrt_etas = sqrt_etas
         self.etas = sqrt_etas**2
@@ -188,7 +190,7 @@ class GaussianDiffusion:
         log_variance = variance.log()
         return mean, variance, log_variance
 
-    def q_sample(self, x_start, y, t, noise=None):
+    def q_sample(self, x_start, y, t, edge_term, noise=None):
         """
         Diffuse the data for a given number of diffusion steps.
 
@@ -203,8 +205,12 @@ class GaussianDiffusion:
         if noise is None:
             noise = th.randn_like(x_start)
         assert noise.shape == x_start.shape
+
+        drift = (y - x_start)
+        drift = drift + edge_term
+
         return (
-            _extract_into_tensor(self.etas, t, x_start.shape) * (y - x_start) + x_start
+            _extract_into_tensor(self.etas, t, x_start.shape) * drift + x_start
             + _extract_into_tensor(self.sqrt_etas * self.kappa, t, x_start.shape) * noise
         )
 
@@ -233,7 +239,8 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, x_t, y, t,
+        self, model, x_t, y, t, 
+        edge_term=None,
         clip_denoised=True,
         denoised_fn=None,
         model_kwargs=None
@@ -264,6 +271,10 @@ class GaussianDiffusion:
 
         B, C = x_t.shape[:2]
         assert t.shape == (B,)
+
+        etas_t = _extract_into_tensor(self.etas, t, x_t.shape)
+        x_t = x_t + etas_t * edge_term
+
         model_output = model(self._scale_input(x_t, t), t, **model_kwargs)
 
         model_variance = _extract_into_tensor(self.posterior_variance, t, x_t.shape)
@@ -330,7 +341,7 @@ class GaussianDiffusion:
                 - _extract_into_tensor(self.etas, t, x_t.shape) * y
         ) / _extract_into_tensor(self.kappa * self.sqrt_etas, t, x_t.shape)
 
-    def p_sample(self, model, x, y, t, clip_denoised=True, denoised_fn=None, model_kwargs=None, noise_repeat=False):
+    def p_sample(self, model, x, y, t, edge_term=None, clip_denoised=True, denoised_fn=None, model_kwargs=None, noise_repeat=False):
         """
         Sample x_{t-1} from the model at the given timestep.
 
@@ -352,6 +363,7 @@ class GaussianDiffusion:
             x,
             y,
             t,
+            edge_term=edge_term,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
@@ -441,7 +453,6 @@ class GaussianDiffusion:
         if device is None:
             device = next(model.parameters()).device
         z_y = self.encode_first_stage(y, first_stage_model, up_sample=True)
-        z_y = z_y + KF.sobel(z_y)
 
         # generating noise
         if noise is None:
@@ -459,12 +470,14 @@ class GaussianDiffusion:
 
         for i in indices:
             t = th.tensor([i] * y.shape[0], device=device)
+            edge_term = self.compute_edge_term(z_y, t)
             with th.no_grad():
                 out = self.p_sample(
                     model,
                     z_sample,
                     z_y,
                     t,
+                    edge_term=edge_term,
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
                     model_kwargs=model_kwargs,
@@ -555,13 +568,23 @@ class GaussianDiffusion:
             model_kwargs = {}
 
         z_y = self.encode_first_stage(y, first_stage_model, up_sample=True)
-        z_y = z_y + KF.sobel(z_y)
+        # z_y = z_y + KF.sobel(z_y)
+        edge = KF.sobel(z_y)
+        edge = edge / (edge.abs().mean(dim=(1,2,3), keepdim=True) + 1e-6)  # normalize
+
+        # 4-step schedule: t大=早期噪声大 -> 少用; t小=后期 -> 多用
+        edge_alpha_table = th.tensor([0.0, 0.2, 0.7, 1.0], device=t.device, dtype=z_y.dtype)
+        edge_alpha = edge_alpha_table[t].view(-1, 1, 1, 1)
+
+        edge_term = edge_alpha * edge
+
+
         z_start = self.encode_first_stage(x_start, first_stage_model, up_sample=False)
 
         if noise is None:
             noise = th.randn_like(z_start)
 
-        z_t = self.q_sample(z_start, z_y, t, noise=noise)
+        z_t = self.q_sample(z_start, z_y, t, edge_term, noise=noise)
 
         terms = {}
 
@@ -611,6 +634,12 @@ class GaussianDiffusion:
             inputs_norm = inputs
         return inputs_norm
 
+    def compute_edge_term(self, z_y, t):
+        edge = KF.sobel(z_y)
+        edge = edge / (edge.abs().mean(dim=(1,2,3), keepdim=True) + 1e-6)
+        table = th.tensor([0.0, 0.2, 0.7, 1.0], device=z_y.device, dtype=z_y.dtype)
+        alpha = table[t].view(-1,1,1,1)
+        return alpha * edge
 class GaussianDiffusionDDPM:
     """
     Utilities for training and sampling diffusion models.

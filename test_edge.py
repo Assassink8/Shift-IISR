@@ -39,4 +39,4 @@ def process_sobel_grayscale(input_path: str, output_path: str):
     print(f"处理完成！灰度边缘图已保存至: {output_path}")
 
 if __name__ == "__main__":
-    process_sobel_grayscale("/share/huayunpeng-nfs/image_enhancement/ResShift/testdata/data/data/test_set5/vis/00232.png", "vis_00232_edge.png")
+    process_sobel_grayscale("//share/huayunpeng-nfs/image_enhancement/ResShiftIR/testdata/data/data/test_set15/vis/03813.png", "vis_03813_edge.png")

@@ -1246,8 +1246,12 @@ class UNetModelSwinAdagnV2(nn.Module):
         # 注入点 1：emb
         if private_feat is not None:
             private = self.private_proj(private_feat).type(emb.dtype)
-            # private = th.zeros_like(private)   #private 置零
-            emb = emb + private
+            # t=0 最干净(后期) -> alpha大
+            # t=3 最噪(早期)  -> alpha小
+            alpha_table = th.tensor([1.0, 0.67, 0.33, 0.0], device=timesteps.device, dtype=emb.dtype)
+            alpha = alpha_table[timesteps].unsqueeze(1)  # (B,1)
+            private = th.zeros_like(private)   #private 置零
+            emb = emb + alpha * private
 
         if lq is not None:
             assert self.unet.cond_lq
@@ -1596,7 +1600,9 @@ class PrivateProjector(nn.Module):
         # gate：控制 private 对 emb 的影响强度
         # 0 初始化：一开始等价于“完全不注入”，非常稳
         # self.gate = nn.Parameter(th.zeros(1))
-        self.gate = 0.1
+        # self.gate = 0.1
+        self.gate = nn.Parameter(th.tensor(-2.0))
+
         # 权重：正常初始化（不要 0）
         nn.init.kaiming_normal_(self.proj.weight, nonlinearity="relu")
         nn.init.zeros_(self.proj.bias)
@@ -1611,9 +1617,8 @@ class PrivateProjector(nn.Module):
             raise ValueError(f"Invalid private_feat shape: {private_feat.shape}")
         
         delta_emb = self.proj(private_vec)
-        # if self.gate.abs().item() > 1e-4:
-        #     print(f"[Info] gate activated: {self.gate.item():.6f}")
-        return self.gate * delta_emb
+        # return self.gate * delta_emb
+        return th.sigmoid(self.gate) * delta_emb
 class CrossAttn2D(nn.Module):
     def __init__(self, c_q: int, c_ctx: int, n_heads: int = 4, head_dim: int = 64, norm_groups: int = 32):
         super().__init__()

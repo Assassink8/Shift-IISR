@@ -1,7 +1,7 @@
 trainer:
   target: trainer.TrainerDifadapter
-checkpoint_path: /share/huayunpeng-local/checkpoints/2026-03-01-19-30/ckpts
-checkpoint_step: 2000
+checkpoint_path: /share/huayunpeng-local/checkpoints/2026-03-05-13-52/ckpts
+checkpoint_step: 18000
 
 autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
@@ -91,7 +91,8 @@ unet_wrapper:
 
 model:
   target: models.unet_adagn.UNetModelSwin
-  ckpt_path: /share/huayunpeng-nfs/image_enhancement/ResShift/weights/resshift_bicsrx4_s4.pth
+  ckpt_path: /share/huayunpeng-nfs/image_enhancement/ResShiftIR/weights/resshift_bicsrx4_s4.pth
+  # ckpt_path: ${checkpoint_path}/unet_${checkpoint_step}.pth
   params:
     image_size: 64
     in_channels: 3

@@ -1248,10 +1248,10 @@ class TrainerDifadapter(TrainerDifIR):
             p.requires_grad = True
         # unfreeze unet module
         train_keywords = [
-            # "middle_block"
-            "input_blocks[0]",
-            "input_blocks[1]",
-            "input_blocks[2]",
+            # # "middle_block"
+            # "input_blocks[0]",
+            # "input_blocks[1]",
+            # "input_blocks[2]",
 
         ]
         if train_keywords:
@@ -1701,11 +1701,11 @@ class TrainerDifadapter(TrainerDifIR):
                 }
                 torch.save(discriminator_private_ckpt, self.ckpt_dir/f"discriminator_private_{self.current_iters}.pth")
             
-            unet_ckpt = {
-                'iters_start': self.current_iters,
-                'state_dict': self.model.unet.state_dict(),
-            }
-            torch.save(unet_ckpt, self.ckpt_dir/f"unet_{self.current_iters}.pth")
+            # unet_ckpt = {
+            #     'iters_start': self.current_iters,
+            #     'state_dict': self.model.unet.state_dict(),
+            # }
+            # torch.save(unet_ckpt, self.ckpt_dir/f"unet_{self.current_iters}.pth")
 
             if self.amp_scaler is not None:
                 amp_scaler_ckpt = {

@@ -5,13 +5,13 @@ import torch.nn as nn
 
 class PrivateEncoder(nn.Module):
     """
-    VAE latent (4 channels) -> private feature map [B, C, h, w]
+    VAE latent (3 channels) -> private feature map [B, C, h, w]
     用于提取模态特定特征，生成FiLM参数
     """
 
     def __init__(
         self,
-        in_channels: int = 3,  # ✓ VAE latent 是4通道
+        in_channels: int = 3, 
         out_channels: int = 256,
         base_channels: int = 64,
         num_down: int = 3,

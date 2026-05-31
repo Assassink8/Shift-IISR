@@ -34,3 +34,13 @@ datapipe/__pycache__/datasets.cpython-310.pyc
 testdata/
 results_all/
 vis_results/
+
+# Local experiment outputs and visualization artifacts
+.codex
+/output/
+/result_*/
+/vis_vq_latent*/
+/sobel_visual/
+/*.png
+/*.html
+/*.csv

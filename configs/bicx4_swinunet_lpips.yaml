@@ -89,7 +89,7 @@ unet_wrapper:
 
 model:
   target: models.unet_adagn.UNetModelSwin
-  ckpt_path: /share/huayunpeng-nfs/image_enhancement/ResShift/weights/resshift_bicsrx4_s4.pth
+  ckpt_path: /share/huayunpeng-nfs/image_enhancement/ResShiftIR/weights/resshift_bicsrx4_s4.pth
   params:
     image_size: 64
     in_channels: 3
@@ -190,16 +190,16 @@ train:
   # optimization settings
   weight_decay: 0               
   ema_rate: 0.999
-  iterations: 2000           # total iterations
+  iterations: 18000           # total iterations
   train_diffusion: false
   # save logging
-  save_freq: 1000              # save model every xxx iters           
+  save_freq: 6000              # save model every xxx iters           
   log_freq: [200, 2000, 1]         # [training loss, training images, val images]
   loss_coef: 
     lambda_diff: 1.0
-    lambda_adv: 0.3
-    lambda_align: 0.03
-    lambda_private: 0.2
+    # lambda_adv: 0.3
+    # lambda_align: 0.03
+    lambda_private: 0.1
   local_logging: True           # manually save images
   tf_logging: False             # tensorboard logging
   # validation settings
@@ -212,8 +212,8 @@ train:
   use_amp: True                # amp training
   seed: 123456                 # random seed
   global_seeding: False
-  shared_branch: False
-  private_branch: True
+  # shared_branch: False
+  private_branch: False
   # model compile
   compile:
     flag: False
