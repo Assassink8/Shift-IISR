@@ -129,6 +129,9 @@ diffusion:
     scale_factor: 1.0
     normalize_input: True
     latent_flag: True
+    edge_operator: sobel
+    edge_normalize: True
+    edge_strength: 1.0
 
 data:
   train:
@@ -213,7 +216,9 @@ train:
   seed: 123456                 # random seed
   global_seeding: False
   # shared_branch: False
-  private_branch: False
+  private_branch: True
+  use_private_discriminator: True
+  use_private_vis_supervision: True
   # model compile
   compile:
     flag: False

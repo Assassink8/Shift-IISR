@@ -1,6 +1,6 @@
 trainer:
   target: trainer.TrainerDifadapter
-checkpoint_path: /share/huayunpeng-local/checkpoints/2026-03-05-13-52/ckpts
+checkpoint_path: /share/huayunpeng-local/checkpoints/private_ir_only/2026-05-31-15-51/ckpts
 checkpoint_step: 18000
 
 autoencoderwrapper:
@@ -132,6 +132,9 @@ diffusion:
     scale_factor: 1.0
     normalize_input: True
     latent_flag: True
+    edge_operator: sobel
+    edge_normalize: True
+    edge_strength: 1.0
 
 data:
   train:

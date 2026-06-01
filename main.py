@@ -30,7 +30,8 @@ def get_parser(**parser_kwargs):
             default="./configs/bicx4_swinunet_lpips.yaml",
             help="Configs of yaml file",
             )
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    args.options = unknown_args
 
     return args
 
@@ -38,6 +39,8 @@ if __name__ == "__main__":
     args = get_parser()
 
     configs = OmegaConf.load(args.cfg_path)
+    if args.options:
+        configs = OmegaConf.merge(configs, OmegaConf.from_dotlist(args.options))
 
     # merge args to config
     for key in vars(args):

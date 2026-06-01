@@ -1250,7 +1250,7 @@ class UNetModelSwinAdagnV2(nn.Module):
             # t=3 最噪(早期)  -> alpha小
             alpha_table = th.tensor([1.0, 0.67, 0.33, 0.0], device=timesteps.device, dtype=emb.dtype)
             alpha = alpha_table[timesteps].unsqueeze(1)  # (B,1)
-            private = th.zeros_like(private)   #private 置零
+            # private = th.zeros_like(private)   #private 置零
             emb = emb + alpha * private
 
         if lq is not None:

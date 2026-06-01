@@ -1179,8 +1179,12 @@ class TrainerDifadapter(TrainerDifIR):
 
         #     self.discriminator_shared = discriminator_shared
 
+        use_private_discriminator = bool(
+            getattr(self.configs.train, "use_private_discriminator", True)
+        )
+
         # load private discriminator if provided
-        if self.configs.get("discriminator_private", None) is not None:
+        if use_private_discriminator and self.configs.get("discriminator_private", None) is not None:
             params = OmegaConf.to_container(
                 self.configs.discriminator_private.params, resolve=True
             )
@@ -1205,6 +1209,8 @@ class TrainerDifadapter(TrainerDifIR):
                     self.logger.info("Compiling Done")
 
             self.discriminator_private = discriminator_private
+        else:
+            self.discriminator_private = None
 
 
         #load unet wrapper
@@ -1315,6 +1321,9 @@ class TrainerDifadapter(TrainerDifIR):
 
         # shared_branch = bool(getattr(self.configs.train, "shared_branch", True))
         private_branch = bool(getattr(self.configs.train, "private_branch", True))
+        use_private_vis_supervision = bool(
+            getattr(self.configs.train, "use_private_vis_supervision", True)
+        )
 
         for jj in range(0, current_batchsize, micro_batchsize):
             micro_data = {k: v[jj:jj+micro_batchsize] for k, v in data.items()}
@@ -1388,7 +1397,12 @@ class TrainerDifadapter(TrainerDifIR):
             loss_Dp = None
             loss_private = None
 
-            if 'vis_lq' in micro_data:
+            if (
+                private_branch
+                and use_private_vis_supervision
+                and getattr(self, "discriminator_private", None) is not None
+                and 'vis_lq' in micro_data
+            ):
                 _, p_vis = self.autoencoder.encode(micro_data["vis_lq"], return_features=True)
 
                 # print("shared_ir shape:", s_ir.shape)
@@ -1431,7 +1445,7 @@ class TrainerDifadapter(TrainerDifIR):
                 #             p.requires_grad_(True)
                     
                 # ---- private 分支（可选）----
-                if private_branch and getattr(self, "discriminator_private", None) is not None and p_ir is not None and p_vis is not None:
+                if p_ir is not None and p_vis is not None:
                     for p in self.discriminator_private.parameters():
                         p.requires_grad_(True)
 
@@ -1473,8 +1487,9 @@ class TrainerDifadapter(TrainerDifIR):
 
             # for p in self.discriminator_shared.parameters():
             #     p.requires_grad_(False)
-            for p in self.discriminator_private.parameters():
-                p.requires_grad_(False)
+            if getattr(self, "discriminator_private", None) is not None:
+                for p in self.discriminator_private.parameters():
+                    p.requires_grad_(False)
             self.backward_step_G(diff_loss, extra, num_grad_accumulate)
 
             # logging（你原来的 log_step_train 依赖 z_t/z0_pred，这里没拿；你如果要保留就继续用 dif_loss_wrapper 返回那套）
@@ -1782,4 +1797,3 @@ if __name__ == '__main__':
     xx = vutils.make_grid(torch.from_numpy(im_grid), nrow=5, normalize=True, scale_each=True).numpy()
     util_image.imshow(np.concatenate((im1, im2), 0))
     util_image.imshow(xx.transpose((1,2,0)))
-

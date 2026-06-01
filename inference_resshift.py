@@ -28,6 +28,12 @@ def get_parser(**parser_kwargs):
     parser.add_argument("--seed", type=int, default=12345, help="Random seed.")
     parser.add_argument("--bs", type=int, default=1, help="Batch size.")
     parser.add_argument(
+            "--cfg_path",
+            type=str,
+            default="./configs/bicx4_swinunet_lpips_infer.yaml",
+            help="Configs of yaml file.",
+            )
+    parser.add_argument(
             "--chop_size",
             type=int,
             default=512,
@@ -47,7 +53,8 @@ def get_parser(**parser_kwargs):
             choices=['bicsr'],
             help="Chopping forward.",
             )
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    args.options = unknown_args
 
     return args
 
@@ -57,7 +64,7 @@ def get_configs(args):
         ckpt_dir.mkdir()
 
     if args.task == 'bicsr':
-        configs = OmegaConf.load('./configs/bicx4_swinunet_lpips_infer.yaml')
+        configs = OmegaConf.load(args.cfg_path)
         assert args.scale == 4, 'We only support the 4x super-resolution now!'
         ckpt_url = _LINK[args.task]
         ckpt_path = ckpt_dir / f'resshift_{args.task}x{args.scale}_s{_STEP[args.task]}.pth'
@@ -111,6 +118,8 @@ def main():
     args = get_parser()
 
     configs, chop_stride = get_configs(args)
+    if args.options:
+        configs = OmegaConf.merge(configs, OmegaConf.from_dotlist(args.options))
 
     resshift_sampler = ResShiftSampler(
             configs,
