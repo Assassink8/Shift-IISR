@@ -1552,6 +1552,8 @@ class TrainerDifadapter(TrainerDifIR):
         train_diffusion = bool(getattr(self.configs.train, "train_diffusion", False))
         if train_diffusion:
             params_G += [p for p in self.model.parameters() if p.requires_grad]
+        elif hasattr(self, "model") and hasattr(self.model, "private_proj"):
+            params_G += [p for p in self.model.private_proj.parameters() if p.requires_grad]
 
         if hasattr(self, "autoencoder") and self.autoencoder is not None:
             params_G += [p for p in self.autoencoder.parameters() if p.requires_grad]
