@@ -1,5 +1,5 @@
-checkpoint_path: weights
-checkpoint_step: 18000
+shift_iisr:
+  ckpt_path: weights/shift_iisr_18000.pth
 
 autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
@@ -7,7 +7,6 @@ autoencoderwrapper:
     freeze_base: True
     grm_feature_extractor:
       target: ldm.models.private_encoder.GRMFeatureExtractor
-      ckpt_path: ${checkpoint_path}/private_encoder_${checkpoint_step}.pth 
       params:
         in_channels: 3
         out_channels: 256
@@ -45,7 +44,6 @@ unet_wrapper:
   params:
     grm_projector:
       target: models.unet_adagn.GRMProjector
-      ckpt_path: ${checkpoint_path}/private_proj_${checkpoint_step}.pth
       params:
         in_dim: 256
         time_embed_dim: 640

@@ -19,6 +19,10 @@ from datapipe.datasets import create_dataset
 from utils import util_net
 from utils import util_common
 from utils import util_image
+from utils.shift_iisr_checkpoint import (
+    load_shift_iisr_checkpoint,
+    save_shift_iisr_checkpoint,
+)
 
 from basicsr.utils import DiffJPEG, USMSharp
 from basicsr.utils.img_process_util import filter2D
@@ -1109,21 +1113,6 @@ class TrainerDifadapter(TrainerDifIR):
             )(**params)
             autoencoder_wrapper = autoencoder_wrapper.cuda()
 
-            grm_config = self.configs.autoencoderwrapper.params.get(
-                "grm_feature_extractor",
-                self.configs.autoencoderwrapper.params.get("private_encoder", None),
-            )
-            if grm_config is not None:
-                ckpt_path = grm_config.get("ckpt_path", None)
-                if ckpt_path is not None:
-                    if self.rank == 0:
-                        self.logger.info(f"Loading GRM feature extractor from {ckpt_path}...")
-                    self.load_model(
-                        autoencoder_wrapper.grm_feature_extractor,
-                        ckpt_path,
-                        tag="grm_feature_extractor",
-                    )
-
             if self.configs.autoencoderwrapper.params.get("decoder_adapter", None) is not None:
                 ckpt_path = self.configs.autoencoderwrapper.params.decoder_adapter.get("ckpt_path", None)
                 if ckpt_path is not None:
@@ -1193,16 +1182,6 @@ class TrainerDifadapter(TrainerDifIR):
                 self.configs.unet_wrapper.target
             )(**params)
             unet_wrapper = unet_wrapper.cuda()
-            grm_projector_config = self.configs.unet_wrapper.params.get(
-                "grm_projector",
-                self.configs.unet_wrapper.params.get("private_proj", None),
-            )
-            if grm_projector_config is not None:
-                ckpt_path = grm_projector_config.get("ckpt_path", None)
-                if ckpt_path is not None:
-                    if self.rank == 0:
-                        self.logger.info(f"Loading GRM projector from {ckpt_path}...")
-                    self.load_model(unet_wrapper.grm_projector, ckpt_path, tag="grm_projector")
             if self.configs.train.compile.flag:
                 if self.rank == 0:
                     self.logger.info("Begin compiling UNet wrapper...")
@@ -1212,6 +1191,20 @@ class TrainerDifadapter(TrainerDifIR):
                 if self.rank == 0:
                     self.logger.info("Compiling Done")
             self.model = unet_wrapper
+
+        shift_iisr_config = self.configs.get("shift_iisr", None)
+        if shift_iisr_config is not None:
+            ckpt_path = shift_iisr_config.get("ckpt_path", None)
+            if ckpt_path is not None:
+                if self.rank == 0:
+                    self.logger.info(f"Loading Shift-IISR model from {ckpt_path}...")
+                load_shift_iisr_checkpoint(
+                    ckpt_path,
+                    self.autoencoder.grm_feature_extractor,
+                    self.model.grm_projector,
+                    map_location=f"cuda:{self.rank}",
+                    expected_lsr_strength=self.configs.diffusion.params.lsr_strength,
+                )
 
         # freeze the diffusion model
         self.freeze_model(self.model)
@@ -1249,7 +1242,8 @@ class TrainerDifadapter(TrainerDifIR):
         if missing:
             raise ValueError(
                 "Shift-IISR resume requires a training_state_*.pth checkpoint; "
-                f"missing keys: {sorted(missing)}. Component checkpoints remain valid for inference."
+                f"missing keys: {sorted(missing)}. shift_iisr_*.pth is for "
+                "initialization and inference, not optimizer-state resume."
             )
 
         self.model.grm_projector.load_state_dict(state["grm_projector"])
@@ -1411,11 +1405,19 @@ class TrainerDifadapter(TrainerDifIR):
             if last_batch:
                 if loss_classifier is not None:
                     loss_dict["loss_classifier"] = loss_classifier.detach()
-                if self.wandb is not None and self.current_iters % 20 == 0:
-                    self.wandb.log({
+                if loss_grm_cls is not None:
+                    loss_dict["loss_grm_cls"] = loss_grm_cls.detach()
+                if self.current_iters % self.configs.train.log_freq == 0:
+                    metrics = {
                         k: v.item() if torch.is_tensor(v) else v
                         for k, v in loss_dict.items()
-                    }, step=self.current_iters)
+                    }
+                    self.logger.info(
+                        f"iter={self.current_iters}, "
+                        + ", ".join(f"{key}={value:.6f}" for key, value in metrics.items())
+                    )
+                    if self.wandb is not None:
+                        self.wandb.log(metrics, step=self.current_iters)
         
         # Step the GRM optimizer and modality-classifier optimizer once.
         if self.configs.train.use_amp:
@@ -1528,42 +1530,13 @@ class TrainerDifadapter(TrainerDifIR):
 
     def save_ckpt(self):
         if self.rank == 0:
-            grm_projector_ckpt = {
-                    'iters_start': self.current_iters,
-                    'state_dict': self.model.grm_projector.state_dict(),
-                    }
-            # Keep the historical filename so released inference configs remain usable.
-            torch.save(grm_projector_ckpt, self.ckpt_dir/f"private_proj_{self.current_iters}.pth")
-            if getattr(self, "autoencoder", None) is not None:
-                if self.autoencoder.grm_feature_extractor is not None:
-                    grm_extractor_ckpt = {
-                        'iters_start': self.current_iters,
-                        'state_dict': self.autoencoder.grm_feature_extractor.state_dict(),
-                    }
-                    # Keep the historical filename so released inference configs remain usable.
-                    torch.save(grm_extractor_ckpt, self.ckpt_dir/f"private_encoder_{self.current_iters}.pth")
-                if getattr(self.autoencoder, "decoder_adapter", None) is not None:
-                    decoder_adapter_ckpt = {
-                        'iters_start': self.current_iters,
-                        'state_dict': self.autoencoder.decoder_adapter.state_dict(),
-                    }
-                    torch.save(decoder_adapter_ckpt, self.ckpt_dir/f"decoder_adapter_{self.current_iters}.pth")
-            if self.modality_classifier is not None:
-                modality_classifier_ckpt = {
-                    'iters_start': self.current_iters,
-                    'state_dict': self.modality_classifier.state_dict(),
-                }
-                torch.save(
-                    modality_classifier_ckpt,
-                    self.ckpt_dir/f"discriminator_private_{self.current_iters}.pth",
-                )
-            
-            if self.amp_scaler is not None:
-                amp_scaler_ckpt = {
-                    'iters_start': self.current_iters,
-                    'state_dict': self.amp_scaler.state_dict(),
-                }
-                torch.save(amp_scaler_ckpt, self.ckpt_dir/f"amp_scaler_{self.current_iters}.pth")
+            save_shift_iisr_checkpoint(
+                self.ckpt_dir/f"shift_iisr_{self.current_iters}.pth",
+                self.autoencoder.grm_feature_extractor,
+                self.model.grm_projector,
+                checkpoint_step=self.current_iters,
+                lsr_strength=float(self.configs.diffusion.params.lsr_strength),
+            )
 
             training_state = {
                 "iters_start": self.current_iters,

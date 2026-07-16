@@ -1,46 +1,68 @@
-*/__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 *.swp
 *.swo
-.DS_Store
-env/
+*~
+
+# Local Codex metadata
+.agents/
+.codex/
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Python environments and build artifacts
+.venv/
 venv/
+env/
 ENV/
 build/
 dist/
 *.egg-info/
-.ipynb_checkpoints/
-logs/
-tensorboard/
-checkpoints/
-*.ckpt
+
+# Model weights and downloaded checkpoints
+weights/
 *.pth
 *.pt
-*.log
-debug/
-.vscode/
-.idea/
-.mypy_cache/
-weights/
-*.pycache/
-.cache/
-results
-results1/
-datapipe/__pycache__/datasets.cpython-310.pyc
-testdata/data/test_set5
-datapipe/__pycache__/datasets.cpython-310.pyc
-testdata/
-results_all/
-vis_results/
+*.ckpt
 
-# Local experiment outputs and visualization artifacts
-.codex
-/output/
-/result_*/
-/vis_vq_latent*/
-/sobel_visual/
+# Training logs and experiment directories
+checkpoints/
+experiments/
+logs/
+runs/
+tensorboard/
+wandb/
+*.log
+
+# Inference, evaluation, and analysis outputs
+results*/
+result_*/
+output/
+outputs/
+debug/
+vis_results/
+vis_vq_latent*/
+sobel_visual/
 /*.png
 /*.html
 /*.csv
+
+# Local datasets and research materials
+data/
+testdata/
+paper/
+
+# Miscellaneous caches
+.cache/

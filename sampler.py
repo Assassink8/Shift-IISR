@@ -14,6 +14,7 @@ from contextlib import nullcontext
 from utils import util_net
 from utils import util_image
 from utils import util_common
+from utils.shift_iisr_checkpoint import load_shift_iisr_checkpoint
 
 import torch
 import torch.nn.functional as F
@@ -130,14 +131,6 @@ class BaseSampler:
             params['base_ae'] = self.autoencoder
             autoencoder_wrapper = util_common.get_obj_from_str(self.configs.autoencoderwrapper.target)(**params)
             autoencoder_wrapper = autoencoder_wrapper.cuda()
-            grm_config = self.configs.autoencoderwrapper.params.get(
-                "grm_feature_extractor",
-                self.configs.autoencoderwrapper.params.get("private_encoder", None),
-            )
-            if grm_config is not None and grm_config.get("ckpt_path", None) is not None:
-                ckpt_path = grm_config.ckpt_path
-                self.write_log(f'Loading GRM feature extractor from {ckpt_path}...')
-                self.load_model(autoencoder_wrapper.grm_feature_extractor, ckpt_path)
             if self.configs.autoencoderwrapper.params.get("decoder_adapter", None) is not None and self.configs.autoencoderwrapper.params.decoder_adapter.get("ckpt_path", None) is not None:
                 ckpt_path = self.configs.autoencoderwrapper.params.decoder_adapter.ckpt_path
                 self.write_log(f'Loading AutoEncoder Wrapper decoder adapter from {ckpt_path}...')
@@ -154,16 +147,20 @@ class BaseSampler:
             params['unet'] = self.model
             unet_wrapper = util_common.get_obj_from_str(self.configs.unet_wrapper.target)(**params)
             unet_wrapper = unet_wrapper.cuda()
-            grm_projector_config = self.configs.unet_wrapper.params.get(
-                "grm_projector",
-                self.configs.unet_wrapper.params.get("private_proj", None),
-            )
-            if grm_projector_config is not None and grm_projector_config.get("ckpt_path", None) is not None:
-                ckpt_path = grm_projector_config.ckpt_path
-                self.write_log(f'Loading GRM projector from {ckpt_path}...')
-                self.load_model(unet_wrapper.grm_projector, ckpt_path)
             self.freeze_model(unet_wrapper)
             self.model = unet_wrapper.eval()
+
+        shift_iisr_path = self.configs.shift_iisr.ckpt_path
+        if shift_iisr_path is None:
+            raise ValueError("configs.shift_iisr.ckpt_path must be provided for inference.")
+        self.write_log(f"Loading Shift-IISR model from {shift_iisr_path}...")
+        self.shift_iisr_checkpoint = load_shift_iisr_checkpoint(
+            shift_iisr_path,
+            self.autoencoder.grm_feature_extractor,
+            self.model.grm_projector,
+            map_location=f"cuda:{self.rank}",
+            expected_lsr_strength=self.configs.diffusion.params.lsr_strength,
+        )
 
     def load_model_lora(self, model, ckpt_path=None, tag='model'):
         if self.rank == 0:

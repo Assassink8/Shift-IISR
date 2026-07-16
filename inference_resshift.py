@@ -27,6 +27,12 @@ def get_parser(**parser_kwargs):
     parser.add_argument("--seed", type=int, default=12345, help="Random seed.")
     parser.add_argument("--bs", type=int, default=1, help="Batch size.")
     parser.add_argument(
+            "--shift_iisr_path",
+            type=str,
+            default=None,
+            help="Unified Shift-IISR checkpoint.",
+            )
+    parser.add_argument(
             "--cfg_path",
             type=str,
             default="./configs/bicx4_swinunet_lpips_infer.yaml",
@@ -91,6 +97,8 @@ def get_configs(args):
     configs.model.ckpt_path = str(ckpt_path)
     configs.diffusion.params.sf = args.scale
     configs.autoencoder.ckpt_path = str(vqgan_path)
+    if args.shift_iisr_path is not None:
+        configs.shift_iisr.ckpt_path = args.shift_iisr_path
 
     # save folder
     if not Path(args.out_path).exists():

@@ -11,6 +11,7 @@ pillow
 scikit-learn
 scikit-image
 lpips
+pyiqa
 loguru
 omegaconf
 six

@@ -1,6 +1,8 @@
 trainer:
   target: trainer.TrainerDifadapter
 
+shift_iisr:
+  ckpt_path: ~                 # optional initialization checkpoint
 
 autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
@@ -8,7 +10,6 @@ autoencoderwrapper:
     freeze_base: True
     grm_feature_extractor:
       target: ldm.models.private_encoder.GRMFeatureExtractor
-      ckpt_path: ~ 
       params:
         in_channels: 3
         out_channels: 256
@@ -54,7 +55,6 @@ unet_wrapper:
   params:
     grm_projector:
       target: models.unet_adagn.GRMProjector
-      ckpt_path: ~
       params:
         in_dim: 256
         time_embed_dim: 640
@@ -163,24 +163,17 @@ train:
   prefetch_factor: 2           
   # optimization settings
   weight_decay: 0               
-  ema_rate: 0.999
-  iterations: 5000           # total iterations
+  iterations: 1000          # total iterations
   train_diffusion: false
   # save logging
-  save_freq: 1000              # save model every xxx iters
-  log_freq: [200, 2000, 1]         # [training loss, training images, val images]
+  save_freq: 10              # save model every xxx iters
+  log_freq: 10                 # loss and optional W&B logging interval
   loss_coef: 
     lambda_diff: 1.0
     lambda_cls: 0.1
-  local_logging: True           # manually save images
+  local_logging: False          # do not create per-iteration image folders
   tf_logging: False             # tensorboard logging
   wandb_logging: False          # optional external experiment logging
-  # validation settings
-  use_ema_val: True            
-  val_freq: ${train.save_freq}
-  val_y_channel: True
-  val_resolution: ${model.params.lq_size}
-  val_padding_mode: reflect
   # training setting
   use_amp: True                # amp training
   seed: 123456                 # random seed
