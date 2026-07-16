@@ -976,9 +976,6 @@ class UNetModelSwinAdagn(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
-        self.shared_proj_16 = SharedProjector(in_ch=768, out_ch=320)
-        self.private_proj = PrivateProjector(in_dim=256, time_embed_dim=time_embed_dim)
-
         if cond_lq and lq_size == image_size:
             self.feature_extractor = nn.Identity()
             base_chn = 4 if cond_mask else 3
@@ -1155,7 +1152,7 @@ class UNetModelSwinAdagn(nn.Module):
             conv_nd(dims, input_ch, out_channels, 3, padding=1),
         )
 
-    def forward(self, x, timesteps, lq=None, shared_feat=None, private_feat=None):
+    def forward(self, x, timesteps, lq=None):
         """
         Apply the model to an input batch.
         :param x: an [N x C x ...] Tensor of inputs.
@@ -1165,9 +1162,6 @@ class UNetModelSwinAdagn(nn.Module):
         """
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels)).type(self.dtype)
-        # if private_feat is not None:
-        #     emb = emb + self.private_proj(private_feat).type(emb.dtype)
-
         if lq is not None:
             assert self.cond_lq
             lq = self.feature_extractor(lq.type(self.dtype))
@@ -1175,14 +1169,9 @@ class UNetModelSwinAdagn(nn.Module):
 
 
         h = x.type(self.dtype)
-        # print("=== input_blocks ===")
-        for ii, module in enumerate(self.input_blocks):
+        for module in self.input_blocks:
             h = module(h, emb)
-            # if shared_feat is not None and ii == 6:
-            #     h = h + self.shared_proj_16(shared_feat).type(h.dtype)
-            # print(f"input_blocks[{ii}]: {h.shape}")
             hs.append(h)
-        # print("=== middle_block ===")
         h = self.middle_block(h, emb)
         # print(f"middle_block: {h.shape}")
 
@@ -1217,41 +1206,38 @@ class UNetModelSwinAdagnV2(nn.Module):
     def __init__(self,
                 unet: nn.Module,
                 private_proj: Optional[nn.Module] = None,
-                shared_proj: Optional[nn.Module] = None,):
+                grm_projector: Optional[nn.Module] = None,):
         super().__init__()
 
         self.unet = unet
         # self.inject_scale = 0.0
-        if isinstance(private_proj, (dict, DictConfig)):
-            self.private_proj = instantiate_from_config(private_proj)
-        # if isinstance(shared_proj, (dict, DictConfig)):
-        #     self.shared_proj_16 = instantiate_from_config(shared_proj)
-
-        # 每层一个 gate（强烈建议 init=0，最稳）
-        # self.g6 = nn.Parameter(th.tensor(0.0))
-        # self.g7 = nn.Parameter(th.tensor(0.0))
-        # self.g8 = nn.Parameter(th.tensor(0.0))
-
-        # # 下面 c6/c7/c8 你要填成对应层 h 的通道数
-        # self.xattn6 = CrossAttn2D(c_q=320, c_ctx=320, n_heads=4, head_dim=64)
-        # self.xattn7 = CrossAttn2D(c_q=320, c_ctx=320, n_heads=4, head_dim=64)
-        # self.xattn8 = CrossAttn2D(c_q=320, c_ctx=320, n_heads=4, head_dim=64)
-
+        if private_proj is not None and grm_projector is not None:
+            raise ValueError("Specify only grm_projector; private_proj is a legacy alias.")
+        if grm_projector is None:
+            grm_projector = private_proj
+        if isinstance(grm_projector, (dict, DictConfig)):
+            grm_projector = instantiate_from_config(grm_projector)
+        # Keep the registered module name for compatibility with historical state dicts.
+        self.private_proj = grm_projector
+    @property
+    def grm_projector(self):
+        return self.private_proj
 
     def forward(self, x, timesteps, lq=None,
-            private_feat=None, shared_feat=None):
+            grm_feat=None, private_feat=None):
+        if grm_feat is not None and private_feat is not None:
+            raise ValueError("Specify only grm_feat; private_feat is a legacy alias.")
+        grm_feat = grm_feat if grm_feat is not None else private_feat
         hs = []
         emb = self.unet.time_embed(timestep_embedding(timesteps, self.unet.model_channels)).type(self.unet.dtype)
 
         # 注入点 1：emb
-        if private_feat is not None:
-            private = self.private_proj(private_feat).type(emb.dtype)
-            # t=0 最干净(后期) -> alpha大
-            # t=3 最噪(早期)  -> alpha小
+        if grm_feat is not None:
+            grm = self.grm_projector(grm_feat).type(emb.dtype)
+            # Direct timestep indexing used by the released GRM schedule.
             alpha_table = th.tensor([1.0, 0.67, 0.33, 0.0], device=timesteps.device, dtype=emb.dtype)
             alpha = alpha_table[timesteps].unsqueeze(1)  # (B,1)
-            # private = th.zeros_like(private)   #private 置零
-            emb = emb + alpha * private
+            emb = emb + alpha * grm
 
         if lq is not None:
             assert self.unet.cond_lq
@@ -1261,18 +1247,6 @@ class UNetModelSwinAdagnV2(nn.Module):
         h = x.type(self.unet.dtype)
         for ii, module in enumerate(self.unet.input_blocks):
             h = module(h, emb)
-
-            # 注入点 2：h at ii==6
-            # if shared_feat is not None and (ii in [6, 7, 8]):
-            #     shared = self.shared_proj_16(shared_feat).type(h.dtype)
-                # proj = self.shared_proj_16(shared_feat).type(h.dtype)  # 你的注入项
-                # print("h abs mean:", h.detach().abs().mean().item())
-                # print("proj abs mean:", proj.detach().abs().mean().item())
-                # print("proj/h ratio:", (proj.detach().abs().mean() / (h.detach().abs().mean() + 1e-8)).item())
-                # shared = th.zeros_like(shared)    #shared 置零
-                # h = h + shared
-            # if (shared_feat is not None) and (ii in [6, 7, 8]):
-            #     shared = self.shared_proj_16(shared_feat).type(h.dtype)  # [B,768,16,16] -> ctx
 
             #     if ii == 6:
             #         h = h + self.g6 * self.xattn6(h, shared).type(h.dtype)
@@ -1559,101 +1533,31 @@ class UNetModelConv(nn.Module):
         out = self.out(h)
         return out
 
-class SharedProjector(nn.Module):
+class GRMProjector(nn.Module):
     """
-     shared_feat: (B, 768, 16, 16) -> proj_feat: (B, out_ch, 16, 16)
-    And a learnable gate alpha (init 0):
-      h = h + alpha * proj(shared_feat)
-    """
-    def __init__(self, in_ch, out_ch):
-        super().__init__()
-        self.proj = nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=1, padding=0)
-
-       # gate：控制 shared 注入强度
-        # self.alpha = nn.Parameter(th.zeros(1))
-        self.alpha = 0.1
-
-        # 权重正常初始化（不要 0）
-        nn.init.kaiming_normal_(self.proj.weight, nonlinearity="relu")
-        if self.proj.bias is not None:
-            nn.init.zeros_(self.proj.bias)
-    
-    def forward(self, shared_feat: th.Tensor) -> th.Tensor:
-        if shared_feat.dim() != 4:
-            raise ValueError(f"Invalid shared_feat shape: {shared_feat.shape}")
-        proj_feat = self.proj(shared_feat)
-        # print("shared_feat std:", shared_feat.std().item())
-        # print("proj std:", proj_feat.std().item())
-        # if self.alpha.abs().item() > 1e-4:
-        #     print(f"[Info] alpha activated: {self.alpha.item():.6f}")
-        return self.alpha * proj_feat
-
-class PrivateProjector(nn.Module):
-    """
-    private_feat: (B, 256, 2, 2) or (B, 256) -> delta_emb: (B, time_embed_dim)
-    Used as: emb = emb + private_proj(private_feat)
+    GRM feature: (B, 256, 2, 2) or (B, 256) -> delta_emb: (B, time_embed_dim)
     """
     def __init__(self, in_dim: int = 256, time_embed_dim: int = 640):
         super().__init__()
         self.proj = nn.Linear(in_dim, time_embed_dim)
 
-        # gate：控制 private 对 emb 的影响强度
-        # 0 初始化：一开始等价于“完全不注入”，非常稳
-        # self.gate = nn.Parameter(th.zeros(1))
-        # self.gate = 0.1
+        # Learnable injection gate used for the released model.
         self.gate = nn.Parameter(th.tensor(-2.0))
 
-        # 权重：正常初始化（不要 0）
         nn.init.kaiming_normal_(self.proj.weight, nonlinearity="relu")
         nn.init.zeros_(self.proj.bias)
     
-    def forward(self, private_feat: th.Tensor) -> th.Tensor:
-         # (B,256,2,2) -> (B,256)
-        if private_feat.dim() == 4:
-            private_vec = private_feat.mean(dim=(2, 3))
-        elif private_feat.dim() == 2:
-            private_vec = private_feat
+    def forward(self, grm_feat: th.Tensor) -> th.Tensor:
+        if grm_feat.dim() == 4:
+            grm_vec = grm_feat.mean(dim=(2, 3))
+        elif grm_feat.dim() == 2:
+            grm_vec = grm_feat
         else:
-            raise ValueError(f"Invalid private_feat shape: {private_feat.shape}")
+            raise ValueError(f"Invalid grm_feat shape: {grm_feat.shape}")
         
-        delta_emb = self.proj(private_vec)
-        # return self.gate * delta_emb
+        delta_emb = self.proj(grm_vec)
         return th.sigmoid(self.gate) * delta_emb
-class CrossAttn2D(nn.Module):
-    def __init__(self, c_q: int, c_ctx: int, n_heads: int = 4, head_dim: int = 64, norm_groups: int = 32):
-        super().__init__()
-        self.n_heads = n_heads
-        self.head_dim = head_dim
-        inner = n_heads * head_dim
 
-        self.norm_q = nn.GroupNorm(num_groups=min(norm_groups, c_q), num_channels=c_q, eps=1e-6, affine=True)
-        self.norm_ctx = nn.GroupNorm(num_groups=min(norm_groups, c_ctx), num_channels=c_ctx, eps=1e-6, affine=True)
 
-        self.to_q = nn.Conv2d(c_q, inner, 1, bias=False)
-        self.to_k = nn.Conv2d(c_ctx, inner, 1, bias=False)
-        self.to_v = nn.Conv2d(c_ctx, inner, 1, bias=False)
-        self.out = nn.Conv2d(inner, c_q, 1, bias=False)
-
-        self.scale = head_dim ** -0.5
-
-    def forward(self, h: th.Tensor, ctx: th.Tensor) -> th.Tensor:
-        b, c, H, W = h.shape
-        h_ = self.norm_q(h)
-        ctx_ = self.norm_ctx(ctx)
-        if ctx_.shape[-2:] != (H, W):
-            ctx_ = F.interpolate(ctx_, size=(H, W), mode="bilinear", align_corners=False)
-
-        q = self.to_q(h_)
-        k = self.to_k(ctx_)
-        v = self.to_v(ctx_)
-
-        q = q.view(b, self.n_heads, self.head_dim, H * W).transpose(2, 3)  # [B, heads, HW, d]
-        k = k.view(b, self.n_heads, self.head_dim, H * W).transpose(2, 3)
-        v = v.view(b, self.n_heads, self.head_dim, H * W).transpose(2, 3)
-
-        attn = (q * self.scale) @ k.transpose(-2, -1)   # [B, heads, HW, HW]
-        attn = attn.softmax(dim=-1)
-
-        out = attn @ v                                   # [B, heads, HW, d]
-        out = out.transpose(2, 3).contiguous().view(b, self.n_heads * self.head_dim, H, W)
-        return self.out(out)                              # [B, C, H, W]
+# Backward-compatible import name used by released configs/checkpoints.
+PrivateProjector = GRMProjector

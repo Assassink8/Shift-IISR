@@ -9,7 +9,6 @@ from pathlib import Path
 from omegaconf import OmegaConf
 from sampler import ResShiftSampler
 
-from utils.util_opts import str2bool
 from basicsr.utils.download_util import load_file_from_url
 
 _STEP = {
@@ -68,7 +67,6 @@ def get_configs(args):
         assert args.scale == 4, 'We only support the 4x super-resolution now!'
         ckpt_url = _LINK[args.task]
         ckpt_path = ckpt_dir / f'resshift_{args.task}x{args.scale}_s{_STEP[args.task]}.pth'
-        # ckpt_path = Path('/share/huayunpeng-local/checkpoints/2026-03-03-20-11/ckpts/unet_2000.pth')
         vqgan_url = _LINK['vqgan']
         vqgan_path = ckpt_dir / f'autoencoder_vq_f4.pth'
     else:
@@ -90,7 +88,7 @@ def get_configs(args):
             file_name=vqgan_path.name,
             )
 
-    # configs.model.ckpt_path = str(ckpt_path)
+    configs.model.ckpt_path = str(ckpt_path)
     configs.diffusion.params.sf = args.scale
     configs.autoencoder.ckpt_path = str(vqgan_path)
 
@@ -136,7 +134,7 @@ def main():
             args.in_path,
             args.out_path,
             bs=args.bs,
-            noise_repeat=False
+            noise_repeat=False,
             )
 
 if __name__ == '__main__':

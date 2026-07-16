@@ -131,11 +131,8 @@ class GaussianDiffusion:
         scale_factor=None,
         normalize_input=True,
         latent_flag=True,
-        edge_operator="sobel",
-        edge_normalize=True,
-        edge_strength=1.0,
-        canny_low_threshold=0.1,
-        canny_high_threshold=0.2,
+        lsr_normalize=True,
+        lsr_strength=1.0,
     ):
         self.kappa = kappa
         self.model_mean_type = model_mean_type
@@ -144,19 +141,8 @@ class GaussianDiffusion:
         self.normalize_input = normalize_input
         self.latent_flag = latent_flag
         self.sf = sf
-        self.edge_operator = str(edge_operator).lower()
-        self.edge_normalize = edge_normalize
-        self.edge_strength = edge_strength
-        self.canny_low_threshold = canny_low_threshold
-        self.canny_high_threshold = canny_high_threshold
-        supported_edge_ops = {"sobel", "laplacian", "scharr", "canny", "none"}
-        if self.edge_operator not in supported_edge_ops:
-            raise ValueError(
-                f"Unknown edge_operator '{edge_operator}'. "
-                f"Expected one of {sorted(supported_edge_ops)}."
-            )
-
-        # self.edge_scale = nn.Parameter(th.tensor(-2.0))  # sigmoid后≈0.12，初始很弱更稳
+        self.lsr_normalize = lsr_normalize
+        self.lsr_strength = lsr_strength
 
         # Use float64 for accuracy.
         self.sqrt_etas = sqrt_etas
@@ -206,7 +192,7 @@ class GaussianDiffusion:
         log_variance = variance.log()
         return mean, variance, log_variance
 
-    def q_sample(self, x_start, y, t, edge_term, noise=None):
+    def q_sample(self, x_start, y, t, lsr_prior, noise=None):
         """
         Diffuse the data for a given number of diffusion steps.
 
@@ -223,7 +209,7 @@ class GaussianDiffusion:
         assert noise.shape == x_start.shape
 
         drift = (y - x_start)
-        drift = drift + edge_term
+        drift = drift + lsr_prior
 
         return (
             _extract_into_tensor(self.etas, t, x_start.shape) * drift + x_start
@@ -256,7 +242,7 @@ class GaussianDiffusion:
 
     def p_mean_variance(
         self, model, x_t, y, t, 
-        edge_term=None,
+        lsr_prior=None,
         clip_denoised=True,
         denoised_fn=None,
         model_kwargs=None
@@ -289,7 +275,7 @@ class GaussianDiffusion:
         assert t.shape == (B,)
 
         etas_t = _extract_into_tensor(self.etas, t, x_t.shape)
-        x_t = x_t + etas_t * edge_term
+        x_t = x_t + etas_t * lsr_prior
 
         model_output = model(self._scale_input(x_t, t), t, **model_kwargs)
 
@@ -357,7 +343,7 @@ class GaussianDiffusion:
                 - _extract_into_tensor(self.etas, t, x_t.shape) * y
         ) / _extract_into_tensor(self.kappa * self.sqrt_etas, t, x_t.shape)
 
-    def p_sample(self, model, x, y, t, edge_term=None, clip_denoised=True, denoised_fn=None, model_kwargs=None, noise_repeat=False):
+    def p_sample(self, model, x, y, t, lsr_prior=None, clip_denoised=True, denoised_fn=None, model_kwargs=None, noise_repeat=False):
         """
         Sample x_{t-1} from the model at the given timestep.
 
@@ -379,7 +365,7 @@ class GaussianDiffusion:
             x,
             y,
             t,
-            edge_term=edge_term,
+            lsr_prior=lsr_prior,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
@@ -486,14 +472,14 @@ class GaussianDiffusion:
 
         for i in indices:
             t = th.tensor([i] * y.shape[0], device=device)
-            edge_term = self.compute_edge_term(z_y, t)
+            lsr_prior = self.compute_lsr_prior(z_y, t)
             with th.no_grad():
                 out = self.p_sample(
                     model,
                     z_sample,
                     z_y,
                     t,
-                    edge_term=edge_term,
+                    lsr_prior=lsr_prior,
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
                     model_kwargs=model_kwargs,
@@ -584,13 +570,13 @@ class GaussianDiffusion:
             model_kwargs = {}
 
         z_y = self.encode_first_stage(y, first_stage_model, up_sample=True)
-        edge_term = self.compute_edge_term(z_y, t)
+        lsr_prior = self.compute_lsr_prior(z_y, t)
         z_start = self.encode_first_stage(x_start, first_stage_model, up_sample=False)
 
         if noise is None:
             noise = th.randn_like(z_start)
 
-        z_t = self.q_sample(z_start, z_y, t, edge_term, noise=noise)
+        z_t = self.q_sample(z_start, z_y, t, lsr_prior, noise=noise)
 
         terms = {}
 
@@ -640,76 +626,16 @@ class GaussianDiffusion:
             inputs_norm = inputs
         return inputs_norm
 
-    def _depthwise_filter(self, x, kernel):
-        channels = x.shape[1]
-        kernel = kernel.to(device=x.device, dtype=x.dtype).view(1, 1, 3, 3)
-        kernel = kernel.repeat(channels, 1, 1, 1)
-        return F.conv2d(x, kernel, padding=1, groups=channels)
+    def compute_lsr_map(self, z_y):
+        return KF.sobel(z_y)
 
-    def _scharr(self, x):
-        kernel_x = th.tensor(
-            [[-3.0, 0.0, 3.0], [-10.0, 0.0, 10.0], [-3.0, 0.0, 3.0]],
-            device=x.device,
-            dtype=x.dtype,
-        ) / 32.0
-        kernel_y = kernel_x.t()
-        grad_x = self._depthwise_filter(x, kernel_x)
-        grad_y = self._depthwise_filter(x, kernel_y)
-        return th.sqrt(grad_x.square() + grad_y.square() + 1e-12)
-
-    def _laplacian(self, x):
-        kernel = th.tensor(
-            [[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]],
-            device=x.device,
-            dtype=x.dtype,
-        )
-        return self._depthwise_filter(x, kernel).abs()
-
-    def _normalize_per_channel(self, x):
-        reduce_dims = (2, 3)
-        x_min = x.amin(dim=reduce_dims, keepdim=True)
-        x_max = x.amax(dim=reduce_dims, keepdim=True)
-        return (x - x_min) / (x_max - x_min + 1e-6)
-
-    def _canny(self, x):
-        if not hasattr(KF, "canny"):
-            raise NotImplementedError(
-                "edge_operator='canny' requires kornia.filters.canny in the runtime environment."
-            )
-        input_dtype = x.dtype
-        _, edge = KF.canny(
-            self._normalize_per_channel(x.float()),
-            low_threshold=self.canny_low_threshold,
-            high_threshold=self.canny_high_threshold,
-        )
-        if edge.shape[1] == 1 and x.shape[1] != 1:
-            edge = edge.repeat(1, x.shape[1], 1, 1)
-        if edge.shape != x.shape:
-            edge = F.interpolate(edge, size=x.shape[-2:], mode="nearest")
-            if edge.shape[1] != x.shape[1]:
-                edge = edge[:, :1].repeat(1, x.shape[1], 1, 1)
-        return edge.to(dtype=input_dtype)
-
-    def compute_edge_map(self, z_y):
-        if self.edge_operator == "none":
-            return th.zeros_like(z_y)
-        if self.edge_operator == "sobel":
-            return KF.sobel(z_y)
-        if self.edge_operator == "laplacian":
-            return self._laplacian(z_y)
-        if self.edge_operator == "scharr":
-            return self._scharr(z_y)
-        if self.edge_operator == "canny":
-            return self._canny(z_y)
-        raise AssertionError(f"Unhandled edge_operator: {self.edge_operator}")
-
-    def compute_edge_term(self, z_y, t):
-        edge = self.compute_edge_map(z_y)
-        if self.edge_normalize:
-            edge = edge / (edge.abs().mean(dim=(1,2,3), keepdim=True) + 1e-6)
+    def compute_lsr_prior(self, z_y, t):
+        lsr_map = self.compute_lsr_map(z_y)
+        if self.lsr_normalize:
+            lsr_map = lsr_map / (lsr_map.abs().mean(dim=(1,2,3), keepdim=True) + 1e-6)
         table = th.tensor([0.0, 0.2, 0.7, 1.0], device=z_y.device, dtype=z_y.dtype)
         alpha = table[t].view(-1,1,1,1)
-        return self.edge_strength * alpha * edge
+        return self.lsr_strength * alpha * lsr_map
 class GaussianDiffusionDDPM:
     """
     Utilities for training and sampling diffusion models.

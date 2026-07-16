@@ -19,11 +19,8 @@ def create_gaussian_diffusion(
     timestep_respacing=None,
     scale_factor=None,
     latent_flag=True,
-    edge_operator="sobel",
-    edge_normalize=True,
-    edge_strength=1.0,
-    canny_low_threshold=0.1,
-    canny_high_threshold=0.2,
+    lsr_normalize=True,
+    lsr_strength=1.0,
 ):
     sqrt_etas = gd.get_named_eta_schedule(
             schedule_name,
@@ -57,11 +54,8 @@ def create_gaussian_diffusion(
         normalize_input=normalize_input,
         sf=sf,
         latent_flag=latent_flag,
-        edge_operator=edge_operator,
-        edge_normalize=edge_normalize,
-        edge_strength=edge_strength,
-        canny_low_threshold=canny_low_threshold,
-        canny_high_threshold=canny_high_threshold,
+        lsr_normalize=lsr_normalize,
+        lsr_strength=lsr_strength,
     )
 
 def create_gaussian_diffusion_ddpm(

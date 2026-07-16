@@ -81,8 +81,8 @@ class VQModelTorchWrapper(nn.Module):
     def __init__(
         self,
         base_ae: nn.Module,
-        shared_encoder: Optional[nn.Module] = None,
         private_encoder: Optional[nn.Module] = None,
+        grm_feature_extractor: Optional[nn.Module] = None,
         decoder_adapter: Optional[nn.Module] = None,
         freeze_base: bool = True,
     ):
@@ -90,12 +90,14 @@ class VQModelTorchWrapper(nn.Module):
         if isinstance(base_ae, (dict, DictConfig)):
             base_ae = instantiate_from_config(base_ae)
         self.base_ae = base_ae
-        # if isinstance(shared_encoder, (dict, DictConfig)):
-        #     shared_encoder = instantiate_from_config(shared_encoder)
-        # self.shared_encoder = shared_encoder
-        if isinstance(private_encoder, (dict, DictConfig)):
-            private_encoder = instantiate_from_config(private_encoder)
-        self.private_encoder = private_encoder
+        if private_encoder is not None and grm_feature_extractor is not None:
+            raise ValueError("Specify only grm_feature_extractor; private_encoder is a legacy alias.")
+        if grm_feature_extractor is None:
+            grm_feature_extractor = private_encoder
+        if isinstance(grm_feature_extractor, (dict, DictConfig)):
+            grm_feature_extractor = instantiate_from_config(grm_feature_extractor)
+        # Keep the registered module name for compatibility with historical state dicts.
+        self.private_encoder = grm_feature_extractor
 
         if isinstance(decoder_adapter, (dict, DictConfig)):
             decoder_adapter = instantiate_from_config(decoder_adapter)
@@ -110,28 +112,31 @@ class VQModelTorchWrapper(nn.Module):
             p.requires_grad = flag
         return self
     
-    def requires_grad_shared(self, flag: bool):
-        # if self.shared_encoder is not None:
-        #     for p in self.shared_encoder.parameters():
-        #         p.requires_grad = flag
+    @property
+    def grm_feature_extractor(self):
+        return self.private_encoder
+
+    def requires_grad_grm_(self, flag: bool):
         if self.private_encoder is not None:
             for p in self.private_encoder.parameters():
                 p.requires_grad  = flag
         return self
+
+    # Backward-compatible helper name.
+    def requires_grad_shared(self, flag: bool):
+        return self.requires_grad_grm_(flag)
     
     def encode(self, x: torch.Tensor, return_features=False, *args, **kwargs) -> torch.Tensor:
         """
         Base: h = base_ae.encode(x)
-        Then:  s = shared_encoder(h) if provided
-               p = private_encoder(h) if provided
+        Then extract the GRM feature if a GRM feature extractor is provided.
         """
         h = self.base_ae.encode(x, *args, **kwargs)
-        # if self.shared_encoder is not None:
-        #     s = self.shared_encoder(h)
-        if self.private_encoder is not None:
-            p = self.private_encoder(h)
+        grm_feat = None
+        if self.grm_feature_extractor is not None:
+            grm_feat = self.grm_feature_extractor(h)
         if return_features:
-            return h, p
+            return h, grm_feat
         return h
     
     def decode(self, h: torch.Tensor, force_not_quantize: bool = False, *args, **kwargs) -> torch.Tensor:
@@ -252,4 +257,3 @@ class IdentityFirstStage(torch.nn.Module):
 
     def forward(self, x, *args, **kwargs):
         return x
-

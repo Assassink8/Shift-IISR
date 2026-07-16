@@ -6,38 +6,18 @@ autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
   params:
     freeze_base: True
-    # shared_encoder:
-    #   target: ldm.models.shared_encoder.SharedEncoder
-    #   ckpt_path: ~
-    #   params:
-    #     in_channels: 3
-    #     context_dim: 768
-    #     base_channels: 64
-    #     num_blocks: 2
-        # act: None
-    private_encoder: 
-      target: ldm.models.private_encoder.PrivateEncoder
+    grm_feature_extractor:
+      target: ldm.models.private_encoder.GRMFeatureExtractor
       ckpt_path: ~ 
       params:
         in_channels: 3
         out_channels: 256
         base_channels: 64
         num_down: 3
-        # act: None
-
-
     decoder_adapter: null
 
-# discriminator_shared:
-#   target: ldm.models.discriminator.DomainDiscriminatorS
-#   ckpt_path: ~
-#   params:
-#     in_ch: 768
-#     hidden: 256
-#     num_classes: 2
-
-discriminator_private:
-  target: ldm.models.discriminator.DomainDiscriminatorP
+modality_classifier:
+  target: ldm.models.discriminator.ModalityClassifier
   ckpt_path: ~
   params:
     in_ch: 256
@@ -72,24 +52,16 @@ autoencoder:
 unet_wrapper:
   target: models.unet_adagn.UNetModelSwinAdagnV2
   params:
-    # private_feat_dim: 256
-    # shared_feat_dim: 768
-    private_proj:
-      target: models.unet_adagn.PrivateProjector
+    grm_projector:
+      target: models.unet_adagn.GRMProjector
       ckpt_path: ~
       params:
         in_dim: 256
         time_embed_dim: 640
-    # shared_proj:
-    #   target: models.unet_adagn.SharedProjector
-    #   ckpt_path: ~
-    #   params:
-    #     in_ch: 768
-    #     out_ch: 320
 
 model:
   target: models.unet_adagn.UNetModelSwin
-  ckpt_path: /share/huayunpeng-nfs/image_enhancement/ResShiftIR/weights/resshift_bicsrx4_s4.pth
+  ckpt_path: weights/resshift_bicsrx4_s4.pth
   params:
     image_size: 64
     in_channels: 3
@@ -129,16 +101,15 @@ diffusion:
     scale_factor: 1.0
     normalize_input: True
     latent_flag: True
-    edge_operator: sobel
-    edge_normalize: True
-    edge_strength: 1.0
+    lsr_normalize: True
+    lsr_strength: 1.0
 
 data:
   train:
     type: bicubic_ir_vis
     params:
-      ir_source_path: /share/huayunpeng-local/M3FD/dataset/train/ir
-      vis_source_path: /share/huayunpeng-local/M3FD/dataset/train/vis
+      ir_source_path: data/M3FD/train/ir
+      vis_source_path: data/M3FD/train/vis
       source_txt_path: ~
       degrade_kwargs:
         scale: 0.25
@@ -193,18 +164,17 @@ train:
   # optimization settings
   weight_decay: 0               
   ema_rate: 0.999
-  iterations: 18000           # total iterations
+  iterations: 5000           # total iterations
   train_diffusion: false
   # save logging
-  save_freq: 6000              # save model every xxx iters           
+  save_freq: 1000              # save model every xxx iters
   log_freq: [200, 2000, 1]         # [training loss, training images, val images]
   loss_coef: 
     lambda_diff: 1.0
-    # lambda_adv: 0.3
-    # lambda_align: 0.03
-    lambda_private: 0.1
+    lambda_cls: 0.1
   local_logging: True           # manually save images
   tf_logging: False             # tensorboard logging
+  wandb_logging: False          # optional external experiment logging
   # validation settings
   use_ema_val: True            
   val_freq: ${train.save_freq}
@@ -215,10 +185,9 @@ train:
   use_amp: True                # amp training
   seed: 123456                 # random seed
   global_seeding: False
-  # shared_branch: False
-  private_branch: True
-  use_private_discriminator: True
-  use_private_vis_supervision: True
+  grm_branch: True
+  use_modality_classifier: True
+  use_vis_supervision: True
   # model compile
   compile:
     flag: False

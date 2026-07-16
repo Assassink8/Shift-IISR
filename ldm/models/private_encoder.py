@@ -3,10 +3,9 @@ import torch
 import torch.nn as nn
 
 
-class PrivateEncoder(nn.Module):
+class GRMFeatureExtractor(nn.Module):
     """
-    VAE latent (3 channels) -> private feature map [B, C, h, w]
-    用于提取模态特定特征，生成FiLM参数
+    Extract the modality-aware GRM feature from the VAE latent.
     """
 
     def __init__(
@@ -37,13 +36,17 @@ class PrivateEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: VAE latent [B, 4, h, w]
+            x: VAE latent [B, 3, h, w]
         Returns:
-            feat: private features [B, out_channels, h', w']
+            feat: GRM features [B, out_channels, h', w']
         """
         return self.net(x)
 
     @staticmethod
     def pool_feat(feat: torch.Tensor) -> torch.Tensor:
-        """全局平均池化，用于判别器等"""
+        """Global average pooling used by the modality classifier."""
         return feat.mean(dim=(2, 3))
+
+
+# Backward-compatible import name used by released configs/checkpoints.
+PrivateEncoder = GRMFeatureExtractor

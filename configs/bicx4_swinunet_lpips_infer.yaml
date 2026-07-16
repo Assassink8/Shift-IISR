@@ -1,49 +1,19 @@
-trainer:
-  target: trainer.TrainerDifadapter
-checkpoint_path: /share/huayunpeng-local/checkpoints/private_ir_only/2026-05-31-15-51/ckpts
+checkpoint_path: weights
 checkpoint_step: 18000
 
 autoencoderwrapper:
   target: ldm.models.autoencoder.VQModelTorchWrapper
   params:
     freeze_base: True
-    # shared_encoder:
-    #   target: ldm.models.shared_encoder.SharedEncoder
-    #   ckpt_path: ${checkpoint_path}/shared_encoder_${checkpoint_step}.pth
-    #   params:
-    #     in_channels: 3
-    #     context_dim: 768
-    #     base_channels: 64
-    #     num_blocks: 2
-        # act: None
-    private_encoder: 
-      target: ldm.models.private_encoder.PrivateEncoder
+    grm_feature_extractor:
+      target: ldm.models.private_encoder.GRMFeatureExtractor
       ckpt_path: ${checkpoint_path}/private_encoder_${checkpoint_step}.pth 
       params:
         in_channels: 3
         out_channels: 256
         base_channels: 64
         num_down: 3
-        # act: None
-
-
     decoder_adapter: null
-
-# discriminator_shared:
-#   target: ldm.models.discriminator.DomainDiscriminatorS
-#   ckpt_path: ~
-#   params:
-#     in_ch: 768
-#     hidden: 256
-#     num_classes: 2
-
-discriminator_private:
-  target: ldm.models.discriminator.DomainDiscriminatorP
-  ckpt_path: ~
-  params:
-    in_ch: 256
-    hidden: 256
-    num_classes: 2
     
 autoencoder:
   target: ldm.models.autoencoder.VQModelTorch
@@ -73,26 +43,15 @@ autoencoder:
 unet_wrapper:
   target: models.unet_adagn.UNetModelSwinAdagnV2
   params:
-    # private_feat_dim: 256
-    # shared_feat_dim: 768
-    private_proj:
-      target: models.unet_adagn.PrivateProjector
+    grm_projector:
+      target: models.unet_adagn.GRMProjector
       ckpt_path: ${checkpoint_path}/private_proj_${checkpoint_step}.pth
       params:
         in_dim: 256
         time_embed_dim: 640
-    # shared_proj:
-    #   target: models.unet_adagn.SharedProjector
-    #   ckpt_path: ${checkpoint_path}/shared_proj_${checkpoint_step}.pth
-    #   params:
-    #     in_ch: 768
-    #     out_ch: 320
-
-
 model:
   target: models.unet_adagn.UNetModelSwin
-  ckpt_path: /share/huayunpeng-nfs/image_enhancement/ResShiftIR/weights/resshift_bicsrx4_s4.pth
-  # ckpt_path: ${checkpoint_path}/unet_${checkpoint_step}.pth
+  ckpt_path: weights/resshift_bicsrx4_s4.pth
   params:
     image_size: 64
     in_channels: 3
@@ -132,94 +91,5 @@ diffusion:
     scale_factor: 1.0
     normalize_input: True
     latent_flag: True
-    edge_operator: sobel
-    edge_normalize: True
-    edge_strength: 1.0
-
-data:
-  train:
-    type: bicubic_ir_vis
-    params:
-      ir_source_path: /share/huayunpeng-local/M3FD/dataset/train/ir
-      vis_source_path: /share/huayunpeng-local/M3FD/dataset/train/vis
-      source_txt_path: ~
-      degrade_kwargs:
-        scale: 0.25
-        activate_matlab: False
-        resize_back: False
-        pch_size: 256
-        pass_smallmaxresize: False
-        pass_aug: False
-        pass_crop: False
-        ir_chn: rgb
-        vis_chn: rgb
-      transform_type: default
-      transform_kwargs:
-        mean: 0.5
-        std: 0.5
-      length: ~
-      need_path: False
-      im_exts: png
-      recursive: False
-  # val:
-  #   type: bicubic
-  #   params:
-  #     source_path: /mnt/sfs-common/zsyue/projects/ResShift/SR/testingdata/imagenet256/gt
-  #     degrade_kwargs:
-  #       scale: 0.25
-  #       activate_matlab: True
-  #       resize_back: False
-  #       pch_size: 256
-  #       pass_smallmaxresize: True
-  #       pass_aug: True
-  #       pass_crop: True
-  #     transform_type: default
-  #     transform_kwargs:
-  #       mean: 0.5
-  #       std: 0.5
-  #     length: 64
-  #     need_path: False
-  #     im_exts: png
-  #     recursive: False
-
-train:
-  # learning rate
-  lr: 5e-5                      # learning rate 
-  lr_min: 2e-5                      # learning rate 
-  lr_schedule: cosin
-  warmup_iterations: 500
-  # dataloader
-  batch: [20, 1]                
-  microbatch: 20
-  num_workers: 4
-  prefetch_factor: 2           
-  # optimization settings
-  weight_decay: 0               
-  ema_rate: 0.999
-  iterations: 4000            # total iterations
-  train_diffusion: false
-  # save logging
-  save_freq: 500              # save model every xxx iters           
-  log_freq: [200, 2000, 1]         # [training loss, training images, val images]
-  loss_coef: 
-    lambda_diff: 1.0
-    lambda_adv: 0.01
-    lambda_private: 0.1
-  local_logging: True           # manually save images
-  tf_logging: False             # tensorboard logging
-  # validation settings
-  use_ema_val: True            
-  val_freq: ${train.save_freq}
-  val_y_channel: True
-  val_resolution: ${model.params.lq_size}
-  val_padding_mode: reflect
-  # training setting
-  use_amp: True                # amp training
-  seed: 123456                 # random seed
-  global_seeding: False
-  shared_branch: False
-  private_branch: True
-  # model compile
-  compile:
-    flag: False
-    mode: reduce-overhead      # default, reduce-overhead
+    lsr_normalize: True
+    lsr_strength: 1.0

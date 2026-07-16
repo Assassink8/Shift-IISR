@@ -10,7 +10,6 @@ from pathlib import Path
 from loguru import logger
 from omegaconf import OmegaConf
 from contextlib import nullcontext
-import matplotlib.pyplot as plt
 
 from utils import util_net
 from utils import util_image
@@ -116,6 +115,7 @@ class BaseSampler:
                 ckpt_path = self.configs.autoencoder.ckpt_path
                 self.write_log(f'Loading AutoEncoder model from {ckpt_path}...')
                 self.load_model(autoencoder, ckpt_path)
+            self.freeze_model(autoencoder)
             autoencoder.eval()
             self.autoencoder = autoencoder
         else:
@@ -130,18 +130,19 @@ class BaseSampler:
             params['base_ae'] = self.autoencoder
             autoencoder_wrapper = util_common.get_obj_from_str(self.configs.autoencoderwrapper.target)(**params)
             autoencoder_wrapper = autoencoder_wrapper.cuda()
-            # if self.configs.autoencoderwrapper.params.get("shared_encoder", None) is not None and self.configs.autoencoderwrapper.params.shared_encoder.get("ckpt_path", None) is not None:
-            #     ckpt_path = self.configs.autoencoderwrapper.params.shared_encoder.ckpt_path
-            #     self.write_log(f'Loading AutoEncoder Wrapper shared encoder from {ckpt_path}...')
-            #     self.load_model(autoencoder_wrapper.shared_encoder, ckpt_path)
-            if self.configs.autoencoderwrapper.params.get("private_encoder", None) is not None and self.configs.autoencoderwrapper.params.private_encoder.get("ckpt_path", None) is not None:
-                ckpt_path = self.configs.autoencoderwrapper.params.private_encoder.ckpt_path
-                self.write_log(f'Loading AutoEncoder Wrapper private encoder from {ckpt_path}...')
-                self.load_model(autoencoder_wrapper.private_encoder, ckpt_path)
+            grm_config = self.configs.autoencoderwrapper.params.get(
+                "grm_feature_extractor",
+                self.configs.autoencoderwrapper.params.get("private_encoder", None),
+            )
+            if grm_config is not None and grm_config.get("ckpt_path", None) is not None:
+                ckpt_path = grm_config.ckpt_path
+                self.write_log(f'Loading GRM feature extractor from {ckpt_path}...')
+                self.load_model(autoencoder_wrapper.grm_feature_extractor, ckpt_path)
             if self.configs.autoencoderwrapper.params.get("decoder_adapter", None) is not None and self.configs.autoencoderwrapper.params.decoder_adapter.get("ckpt_path", None) is not None:
                 ckpt_path = self.configs.autoencoderwrapper.params.decoder_adapter.ckpt_path
                 self.write_log(f'Loading AutoEncoder Wrapper decoder adapter from {ckpt_path}...')
                 self.load_model(autoencoder_wrapper.decoder_adapter, ckpt_path)
+            self.freeze_model(autoencoder_wrapper)
             self.autoencoder = autoencoder_wrapper.eval()
         
         #load unet wrapper
@@ -153,14 +154,15 @@ class BaseSampler:
             params['unet'] = self.model
             unet_wrapper = util_common.get_obj_from_str(self.configs.unet_wrapper.target)(**params)
             unet_wrapper = unet_wrapper.cuda()
-            if self.configs.unet_wrapper.params.get("private_proj", None) is not None and self.configs.unet_wrapper.params.private_proj.get("ckpt_path", None) is not None:
-                ckpt_path = self.configs.unet_wrapper.params.private_proj.ckpt_path
-                self.write_log(f'Loading Unet Wrapper private projector from {ckpt_path}...')
-                self.load_model(unet_wrapper.private_proj, ckpt_path)
-            # if self.configs.unet_wrapper.params.get("shared_proj", None) is not None and self.configs.unet_wrapper.params.shared_proj.get("ckpt_path", None) is not None:
-            #     ckpt_path = self.configs.unet_wrapper.params.shared_proj.ckpt_path
-            #     self.write_log(f'Loading Unet Wrapper shared projector from {ckpt_path}...')
-            #     self.load_model(unet_wrapper.shared_proj_16, ckpt_path)
+            grm_projector_config = self.configs.unet_wrapper.params.get(
+                "grm_projector",
+                self.configs.unet_wrapper.params.get("private_proj", None),
+            )
+            if grm_projector_config is not None and grm_projector_config.get("ckpt_path", None) is not None:
+                ckpt_path = grm_projector_config.ckpt_path
+                self.write_log(f'Loading GRM projector from {ckpt_path}...')
+                self.load_model(unet_wrapper.grm_projector, ckpt_path)
+            self.freeze_model(unet_wrapper)
             self.model = unet_wrapper.eval()
 
     def load_model_lora(self, model, ckpt_path=None, tag='model'):
@@ -195,6 +197,7 @@ class BaseSampler:
             params.requires_grad = False
 
 class ResShiftSampler(BaseSampler):
+    @torch.inference_mode()
     def sample_func(self, y0, noise_repeat=False):
         '''
         Input:
@@ -215,21 +218,12 @@ class ResShiftSampler(BaseSampler):
         else:
             flag_pad = False
 
-        _, p_ir = self.autoencoder.encode(y0, return_features=True)
-
-        # 输出特征图
-        # visualize_feature_maps({
-        #     "base_ir": base_ir,
-        #     "Shared_Feature": s_ir, 
-        #     "Private_Feature": p_ir
-        # }, save_name="step_1000_check")
+        _, grm_feat = self.autoencoder.encode(y0, return_features=True)
 
          # model kwargs
         model_kwargs = {}
-        # if self.model.shared_proj_16 is not None:
-        #     model_kwargs['shared_feat'] = s_ir
-        if self.model.private_proj is not None:
-            model_kwargs['private_feat'] = p_ir
+        if self.model.grm_projector is not None:
+            model_kwargs['grm_feat'] = grm_feat
         if self.configs.model.params.cond_lq:
             model_kwargs['lq'] = y0
         else:
@@ -252,6 +246,7 @@ class ResShiftSampler(BaseSampler):
 
         return results.clamp_(-1.0, 1.0)
 
+    @torch.inference_mode()
     def inference(self, in_path, out_path, mask_back=True, bs=1, noise_repeat=False):
         '''
         Inference demo.
@@ -331,66 +326,23 @@ class ResShiftSampler(BaseSampler):
                     drop_last=False,
                     )
             for data in dataloader:
+                batch_names = [Path(path).stem for path in data['path']]
                 results = _process_per_image(data['lq'].cuda())    # b x h x w x c, [0, 1], RGB
                 for jj in range(results.shape[0]):
                     im_sr = util_image.tensor2img(results[jj], rgb2bgr=True, min_max=(0.0, 1.0))
-                    im_name = Path(data['path'][jj]).stem
+                    im_name = batch_names[jj]
                     im_path = out_path / f"{im_name}.png"
                     util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
         else:
             im_lq = util_image.imread(in_path, chn='rgb', dtype='float32')  # h x w x c
             im_lq_tensor = util_image.img2tensor(im_lq).cuda()              # 1 x c x h x w
-            im_sr_tensor = _process_per_image(
-                    (im_lq_tensor - 0.5) / 0.5,
-                    )
+            im_sr_tensor = _process_per_image((im_lq_tensor - 0.5) / 0.5)
 
             im_sr = util_image.tensor2img(im_sr_tensor, rgb2bgr=True, min_max=(0.0, 1.0))
             im_path = out_path / f"{in_path.stem}.png"
-            im_gray = (
-                0.114 * im_sr[..., 0] +
-                0.587 * im_sr[..., 1] +
-                0.299 * im_sr[..., 2]
-            ).astype('uint8')
-            assert im_gray.ndim == 2
-            # util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
-            util_image.imwrite(im_gray, im_path, chn='gray', dtype_in='uint8')
+            util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
 
         self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
 
-def visualize_feature_maps(feature_tensors, save_name="debug_features", save_dir="./vis_results"):
-    """
-    feature_tensors: 字典形式，例如 {"shared": s_ir, "private": p_ir}
-    save_name: 保存的文件名前缀
-    """
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-        
-    num_features = len(feature_tensors)
-    fig, axes = plt.subplots(1, num_features, figsize=(5 * num_features, 5))
-    if num_features == 1:
-        axes = [axes]
-
-    for i, (label, tensor) in enumerate(feature_tensors.items()):
-        # 1. 这里的 tensor 形状通常是 [B, C, H, W]
-        # 我们取 batch 中的第一个样本，并在通道维度取平均值值
-        feat = tensor[0].detach().cpu().numpy()
-        heatmap = np.mean(feat, axis=0)  # [H, W]
-        
-        # 2. 归一化到 0-1 方便显示
-        heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-        
-        # 3. 绘制热力图
-        im = axes[i].imshow(heatmap, cmap='jet') # 'jet' 常用于热力图，'viridis' 也很常用
-        axes[i].set_title(f"Feature: {label}")
-        axes[i].axis('off')
-        plt.colorbar(im, ax=axes[i], fraction=0.046, pad=0.04)
-
-    plt.tight_layout()
-    save_path = os.path.join(save_dir, f"{save_name}.png")
-    plt.savefig(save_path)
-    plt.close()
-    print(f"可视化结果已保存至: {save_path}")
-
 if __name__ == '__main__':
     pass
-
