@@ -27,7 +27,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
             "--cfg_path",
             type=str,
-            default="./configs/bicx4_swinunet_lpips.yaml",
+            default="./configs/shift_iisr_x4_train.yaml",
             help="Configs of yaml file",
             )
     args, unknown_args = parser.parse_known_args()

@@ -40,7 +40,7 @@ def get_parser():
     )
     parser.add_argument(
         "--output",
-        default="weights/shift_iisr_18000.pth",
+        default="weights/shift_iisr.pth",
         help="Output Shift-IISR checkpoint.",
     )
     parser.add_argument("--checkpoint_step", type=int, default=18000)

@@ -1,68 +1,62 @@
-# Operating systems and editors
+# Local development files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+.agents/
+.codex/
 *.swp
 *.swo
 *~
 
-# Local Codex metadata
-.agents/
-.codex/
-
-# Python caches and tooling
+# Python caches and environments
 __pycache__/
 *.py[cod]
-*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
 .ipynb_checkpoints/
-
-# Python environments and build artifacts
 .venv/
 venv/
 env/
-ENV/
+
+# Build and package artifacts
 build/
 dist/
 *.egg-info/
+.coverage
+htmlcov/
 
-# Model weights and downloaded checkpoints
-weights/
+# Local data and model weights
+data/
+testdata/*
+!testdata/LR/
+!testdata/LR/**
+!testdata/HR/
+!testdata/HR/**
+paper/
+weights/*
+!weights/shift_iisr.pth
 *.pth
 *.pt
 *.ckpt
+!weights/shift_iisr.pth
 
-# Training logs and experiment directories
+# Training and inference outputs
 checkpoints/
 experiments/
 logs/
 runs/
-tensorboard/
 wandb/
+results*/
+output*/
+debug/
 *.log
 
-# Inference, evaluation, and analysis outputs
-results*/
-result_*/
-output/
-outputs/
-debug/
-vis_results/
-vis_vq_latent*/
-sobel_visual/
+# Root-level generated reports and images
 /*.png
 /*.html
 /*.csv
 
-# Local datasets and research materials
-data/
-testdata/
-paper/
-
-# Miscellaneous caches
+# Tool caches
 .cache/
