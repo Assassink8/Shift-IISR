@@ -1,4 +1,4 @@
-# Shift-IISR: Decoupling Cross-Modality Manifold Discrepancy for Infrared Super-Resolution
+# Decoupling Cross-Modality Manifold Discrepancy for Infrared Super-Resolution
 
 > ACM Multimedia 2026
 
