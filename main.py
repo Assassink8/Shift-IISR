@@ -2,6 +2,9 @@
 # -*- coding:utf-8 -*-
 # Power by Zongsheng Yue 2023-10-26 20:20:36
 
+# Copyright (c) 2022 S-Lab
+# Modified by Yunpeng Hua for Shift-IISR in 2026.
+
 import argparse
 from omegaconf import OmegaConf
 

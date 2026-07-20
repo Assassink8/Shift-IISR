@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Yunpeng Hua
+# Licensed under the NTU S-Lab License 1.0.
+
 from __future__ import annotations
 import torch
 import torch.nn as nn
@@ -10,7 +13,7 @@ class GRMFeatureExtractor(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 3, 
+        in_channels: int = 3,
         out_channels: int = 256,
         base_channels: int = 64,
         num_down: int = 3,
@@ -46,7 +49,3 @@ class GRMFeatureExtractor(nn.Module):
     def pool_feat(feat: torch.Tensor) -> torch.Tensor:
         """Global average pooling used by the modality classifier."""
         return feat.mean(dim=(2, 3))
-
-
-# Backward-compatible import name used by released configs/checkpoints.
-PrivateEncoder = GRMFeatureExtractor

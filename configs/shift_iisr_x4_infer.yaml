@@ -6,7 +6,7 @@ autoencoderwrapper:
   params:
     freeze_base: True
     grm_feature_extractor:
-      target: ldm.models.private_encoder.GRMFeatureExtractor
+      target: ldm.models.grm_feature_extractor.GRMFeatureExtractor
       params:
         in_channels: 3
         out_channels: 256

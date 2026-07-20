@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 # Power by Zongsheng Yue 2022-07-13 16:59:27
+# Copyright (c) 2022 S-Lab
+# Modified by Yunpeng Hua for Shift-IISR in 2026.
 
 import os, sys, math, random
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Yunpeng Hua
+# Licensed under the NTU S-Lab License 1.0.
+
 import argparse
 import sys
 from pathlib import Path
@@ -30,7 +33,7 @@ def get_parser():
     )
     parser.add_argument(
         "--grm_feature_extractor",
-        default="weights/private_encoder_18000.pth",
+        default="weights/grm_feature_extractor_18000.pth",
         help="Legacy GRM feature-extractor checkpoint.",
     )
     parser.add_argument(

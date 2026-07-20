@@ -1,3 +1,6 @@
+# Copyright (c) 2022 S-Lab
+# Modified by Yunpeng Hua for Shift-IISR in 2026.
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -81,7 +84,6 @@ class VQModelTorchWrapper(nn.Module):
     def __init__(
         self,
         base_ae: nn.Module,
-        private_encoder: Optional[nn.Module] = None,
         grm_feature_extractor: Optional[nn.Module] = None,
         decoder_adapter: Optional[nn.Module] = None,
         freeze_base: bool = True,
@@ -90,14 +92,9 @@ class VQModelTorchWrapper(nn.Module):
         if isinstance(base_ae, (dict, DictConfig)):
             base_ae = instantiate_from_config(base_ae)
         self.base_ae = base_ae
-        if private_encoder is not None and grm_feature_extractor is not None:
-            raise ValueError("Specify only grm_feature_extractor; private_encoder is a legacy alias.")
-        if grm_feature_extractor is None:
-            grm_feature_extractor = private_encoder
         if isinstance(grm_feature_extractor, (dict, DictConfig)):
             grm_feature_extractor = instantiate_from_config(grm_feature_extractor)
-        # Keep the registered module name for compatibility with historical state dicts.
-        self.private_encoder = grm_feature_extractor
+        self.grm_feature_extractor = grm_feature_extractor
 
         if isinstance(decoder_adapter, (dict, DictConfig)):
             decoder_adapter = instantiate_from_config(decoder_adapter)
@@ -112,19 +109,11 @@ class VQModelTorchWrapper(nn.Module):
             p.requires_grad = flag
         return self
     
-    @property
-    def grm_feature_extractor(self):
-        return self.private_encoder
-
     def requires_grad_grm_(self, flag: bool):
-        if self.private_encoder is not None:
-            for p in self.private_encoder.parameters():
+        if self.grm_feature_extractor is not None:
+            for p in self.grm_feature_extractor.parameters():
                 p.requires_grad  = flag
         return self
-
-    # Backward-compatible helper name.
-    def requires_grad_shared(self, flag: bool):
-        return self.requires_grad_grm_(flag)
     
     def encode(self, x: torch.Tensor, return_features=False, *args, **kwargs) -> torch.Tensor:
         """

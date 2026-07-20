@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Yunpeng Hua
+# Licensed under the NTU S-Lab License 1.0.
+
 from pathlib import Path
 from typing import Mapping, Optional
 

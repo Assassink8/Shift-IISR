@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# Copyright (c) 2022 S-Lab
+# Modified by Yunpeng Hua for Shift-IISR in 2026.
 # -*- coding:utf-8 -*-
 # Power by Zongsheng Yue 2023-03-11 17:17:41
 

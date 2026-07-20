@@ -14,10 +14,10 @@ Shift-IISR is a diffusion-based framework for 4× infrared image super-resolutio
 
 ## Highlights
 
-- A lightweight adaptation of the visible diffusion prior; the ResShift UNet and autoencoder remain frozen.
-- GRM aligns global modality representation using an infrared feature extractor and a projector.
-- LSR enhances local structural consistency through timestep-aware modulation.
-- Supports single-GPU training and inference.
+- A dual-path diffusion framework for IISR that improves distributional and structural consistency while preserving the pre-trained diffusion prior.
+- Global Representation Modulation (GRM) progressively injects infrared features to reduce visible-prior bias during denoising.
+- Local Structure Refinement (LSR) incorporates structural cues at every denoising step to suppress artifacts and improve geometric fidelity.
+- Competitive super-resolution performance with improved global distributional and structural consistency.
 
 ## Pretrained Weights
 
@@ -162,7 +162,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
 
 ## Acknowledgements
 
-This project builds on [ResShift](https://github.com/zsyOAOA/ResShift). We thank the authors for making their implementation available.
+This repository is built upon [ResShift](https://github.com/zsyOAOA/ResShift) by NTU S-Lab, which is licensed under the S-Lab License 1.0. Therefore, this code is released for **non-commercial research purposes only**. For commercial use, please contact the original contributors.
 
 ## Contact
 

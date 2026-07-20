@@ -1,3 +1,6 @@
+# Copyright (c) 2022 S-Lab
+# Modified by Yunpeng Hua for Shift-IISR in 2026.
+
 from abc import abstractmethod
 from ldm.util import instantiate_from_config
 import math
