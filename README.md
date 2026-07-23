@@ -36,14 +36,7 @@ School of Computer & Communication Engineering, USTB, China
 
 ## Overview
 
-Infrared image super-resolution (IISR) seeks to recover high-resolution
-infrared images from low-resolution inputs. Beyond improving image clarity,
-effective IISR must preserve both global infrared distributional characteristics
-and local structural details. Existing approaches often provide insufficient or
-overly intrusive guidance for these two aspects, and the issue is particularly
-pronounced when adapting diffusion models pre-trained on visible images: their
-visible-spectrum priors can bias the reconstruction away from the intrinsic
-infrared manifold.
+Infrared image super-resolution (IISR) seeks to recover high-resolution infrared images from low-resolution inputs. Beyond improving image clarity, effective IISR must preserve both global infrared distributional characteristics and local structural details. Existing approaches often provide insufficient or overly intrusive guidance for these two aspects, and the issue is particularly pronounced when adapting diffusion models pre-trained on visible images: their visible-spectrum priors can bias the reconstruction away from the infrared manifold.
 
 <p align="center">
   <img src="assets/teaserfigure.png" alt="overview picture" width="95%">
@@ -55,10 +48,7 @@ infrared manifold.
   <img src="assets/framework.png" alt="Overview of the Shift-IISR framework" width="95%">
 </p>
 
-Shift-IISR is a dual-path diffusion framework for 4× infrared image
-super-resolution that adapts a visible-image diffusion prior to the infrared
-domain while retaining its generative capability through two complementary
-modules:
+Shift-IISR is a dual-path diffusion framework for 4× infrared image super-resolution that adapts a visible-image diffusion prior to the infrared domain while retaining its generative capability through two complementary modules:
 
 - **Global Representation Modulation (GRM)** progressively injects infrared
   features into the denoising network to reduce visible-prior bias and improve
@@ -125,8 +115,7 @@ CUDA_VISIBLE_DEVICES=0 python evaluate.py \
   --reference /path/to/ground_truth \
   --device cuda:0
 ```
-When result names include an additional suffix, provide it with
-`--result_suffix`, for example `--result_suffix _x4`.
+When result names include an additional suffix, provide it with `--result_suffix`, for example `--result_suffix _x4`.
 
 ## Training
 
@@ -141,8 +130,7 @@ wget -O weights/resshift_bicsrx4_s4.pth https://github.com/zsyOAOA/ResShift/rele
 
 ### Prepare Data
 
-Prepare infrared and visible training images in separate folders. The two
-folders must contain paired images with identical filenames.
+Prepare infrared and visible training images in separate folders. The two folders must contain paired images with identical filenames.
 
 ```text
 train_data/
@@ -158,8 +146,7 @@ train_data/
 
 ### Launch Training
 
-Set the infrared and visible training-image folders, then launch single-GPU
-training:
+Set the infrared and visible training-image folders, then launch single-GPU training:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python main.py \
@@ -169,9 +156,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   data.train.params.vis_source_path=/path/to/train/vis
 ```
 
-Training saves an inference checkpoint as `shift_iisr_<iteration>.pth` and a
-resumable state as `training_state_<iteration>.pth` under `ckpts/`. Resume with
-the training-state checkpoint:
+Training saves an inference checkpoint as `shift_iisr_<iteration>.pth` and a resumable state as `training_state_<iteration>.pth` under `ckpts/`. Resume with the training-state checkpoint:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python main.py \
@@ -188,6 +173,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
 <p align="center">
   <img src="assets/manifold_discrepancy.png" alt="Manifold discrepancy visualization" width="95%">
 </p>
+t-SNE and UMAP projections show that Shift-IISR features most closely overlap with the infrared ground-truth distribution. In contrast, ResShift exhibits a larger visible-prior-induced shift, while DifIISR provides partial alignment but retains a noticeable distribution gap, particularly under dataset transfer.
 
 ### Qualitative Results
 <p align="center">
@@ -208,21 +194,18 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   title     = {Decoupling Cross-Modality Manifold Discrepancy: Leveraging Visible Diffusion Priors for Infrared Super-Resolution},
   author    = {Hua, Yunpeng and Yu, Hongwei and Li, Jiawei and Liu, Qiankun and Ma, Huimin and Chen, Jiansheng},
   booktitle = {Proceedings of the ACM International Conference on Multimedia},
-  year      = {2026}
+  year      = {2026},
 }
 ```
 
 ## License
 
-This repository is released under the [NTU S-Lab License 1.0](LICENSE) for
-non-commercial research purposes. For commercial use, please contact the
-original contributors.
+This repository is released under the [NTU S-Lab License 1.0](LICENSE) for non-commercial research purposes. For commercial use, please contact the original contributors.
 
-## Acknowledgements
+## Acknowledgement
 
-This project builds upon [ResShift](https://github.com/zsyOAOA/ResShift). We
-thank the authors for making their implementation available.
+This project builds upon [ResShift](https://github.com/zsyOAOA/ResShift). We thank the authors for making their implementation available.
 
 ## Contact
 
-For questions, contact `huayunpeng2011@126.com`.
+If you have any questions, please contact `huayunpeng2011@126.com`.
