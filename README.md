@@ -66,26 +66,8 @@ modules:
 - **Local Structure Refinement (LSR)** incorporates edge-based structural cues
   at each denoising step to suppress artifacts and preserve geometric fidelity.
 
-## Visual Results
 
-### Manifold Discrepancy
-
-<p align="center">
-  <img src="assets/manifold_discrepancy.png" alt="Manifold discrepancy visualization" width="95%">
-</p>
-
-### Qualitative Results
-<p align="center">
-  <img src="assets/qualitative_results.png" alt="Qualitative comparison of Shift-IISR" width="95%">
-</p>
-
-### Quantitative Results
-
-<p align="center">
-  <img src="assets/quantitative_results.png" alt="Quantitative comparison of Shift-IISR" width="95%">
-</p>
-
-## Installation
+## Environment
 
 Tested with Python 3.10, PyTorch 2.1.1, CUDA 12.1, and xformers 0.0.23.
 
@@ -98,31 +80,13 @@ pip install torch==2.1.1 torchvision==0.16.1 \
 pip install -r requirements.txt
 ```
 
-PyTorch is installed separately to explicitly select its CUDA 12.1 build. A
-compatible NVIDIA driver is required, but a separate CUDA toolkit installation
-is not.
+## Inference
 
-## Prepare Models
-
-The released Shift-IISR checkpoint is included in this repository:
-
-```text
-weights/shift_iisr.pth
-```
-
-It contains the GRM feature extractor and GRM projector. The frozen ResShift
-UNet and autoencoder are downloaded automatically to `weights/` when absent;
-they can also be downloaded manually:
-
-- [Autoencoder (`autoencoder_vq_f4.pth`)](https://github.com/zsyOAOA/ResShift/releases/download/v2.0/autoencoder_vq_f4.pth)
-- [ResShift UNet (`resshift_bicsrx4_s4.pth`)](https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_bicsrx4_s4.pth)
-
-## Quick Inference
+>Note: The inference script automatically downloads the frozen ResShift UNet and autoencoder to `weights/` when they are unavailable. If automatic downloading fails, please follow [Prepare Models](#prepare-models) to download them manually.
 
 ### Quick Test
 
-The repository includes 10 paired LR/HR examples in `testdata/LR` and
-`testdata/HR`.
+The repository includes 10 paired LR/HR examples in `testdata/LR` and `testdata/HR`. The following commands enable rapid inference and quantitative evaluation:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python inference_shift_iisr.py \
@@ -151,16 +115,54 @@ CUDA_VISIBLE_DEVICES=0 python inference_shift_iisr.py \
   --bs 1
 ```
 
-Outputs are saved in RGB format. Use `--chop_size 256` or `64` if GPU memory
-is limited.
+### Evaluation
+
+Evaluation requires paired ground-truth images with matching filenames:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python evaluate.py \
+  --input ./results \
+  --reference /path/to/ground_truth \
+  --device cuda:0
+```
+When result names include an additional suffix, provide it with
+`--result_suffix`, for example `--result_suffix _x4`.
 
 ## Training
+
+### Prepare Models
+
+Training initializes from the frozen ResShift UNet and autoencoder. Download the following base checkpoints to `weights/`:
+
+```bash
+wget -O weights/autoencoder_vq_f4.pth https://github.com/zsyOAOA/ResShift/releases/download/v2.0/autoencoder_vq_f4.pth
+wget -O weights/resshift_bicsrx4_s4.pth https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_bicsrx4_s4.pth
+```
+
+### Prepare Data
+
+Prepare infrared and visible training images in separate folders. The two
+folders must contain paired images with identical filenames.
+
+```text
+train_data/
+      ├── ir/
+      │   ├── 000001.png
+      │   ├── 000002.png
+      │   └── ...
+      └── vis/
+          ├── 000001.png
+          ├── 000002.png
+          └── ...
+```
+
+### Launch Training
 
 Set the infrared and visible training-image folders, then launch single-GPU
 training:
 
 ```bash
-MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=0 python main.py \
+CUDA_VISIBLE_DEVICES=0 python main.py \
   --cfg_path configs/shift_iisr_x4_train.yaml \
   --save_dir ./checkpoints/shift_iisr \
   data.train.params.ir_source_path=/path/to/train/ir \
@@ -177,19 +179,27 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   --resume /path/to/ckpts/training_state_<iteration>.pth
 ```
 
-## Evaluation
 
-Evaluation requires paired ground-truth images with matching filenames:
 
-```bash
-CUDA_VISIBLE_DEVICES=0 python evaluate.py \
-  --input ./results \
-  --reference /path/to/ground_truth \
-  --device cuda:0
-```
+## Experimental Results
 
-When result names include an additional suffix, provide it with
-`--result_suffix`, for example `--result_suffix _x4`.
+### Manifold Discrepancy
+
+<p align="center">
+  <img src="assets/manifold_discrepancy.png" alt="Manifold discrepancy visualization" width="95%">
+</p>
+
+### Qualitative Results
+<p align="center">
+  <img src="assets/qualitative_results.png" alt="Qualitative comparison of Shift-IISR" width="95%">
+</p>
+
+### Quantitative Results
+
+<p align="center">
+  <img src="assets/quantitative_results.png" alt="Quantitative comparison of Shift-IISR" width="95%">
+</p>
+
 
 ## Citation
 
