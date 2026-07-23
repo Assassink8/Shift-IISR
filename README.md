@@ -1,42 +1,91 @@
-# Decoupling Cross-Modality Manifold Discrepancy for Infrared Super-Resolution
+<div align="center">
 
-> ACM Multimedia 2026
+<h2>Decoupling Cross-Modality Manifold Discrepancy for Infrared Super-Resolution</h2>
 
-Yunpeng Hua, Hongwei Yu, Jiawei Li, Qiankun Liu, Huimin Ma, and Jiansheng Chen
+<b>Accepted by ACM Multimedia 2026</b>
 
-<!-- LINK PLACEHOLDER: Add the paper and author/project links here after publication. -->
+<br>
 
-Shift-IISR is a diffusion-based framework for 4× infrared image super-resolution. It adapts a visible-image diffusion prior to the infrared domain through Global Representation Modulation (GRM), while Local Structure Refinement (LSR) strengthens structural fidelity during diffusion.
+<!-- Replace the mailto and Scholar-link placeholders with each author's links. -->
+<a href="mailto:huayunpeng2011@126.com"><u>Yunpeng Hua</u></a><sup>&#42;</sup></a>,
+<a href="mailto:yuhongwei22@xs.ustb.edu.cn"><u>Hongwei Yu</u></a><sup>&#42;</sup></a>,
+<a href="mailto:ljw19970218@163.com"><u>Jiawei Li</u></a>&nbsp;<a href="https://scholar.google.com/citations?user=xWy8RZEAAAAJ&hl=en&oi=ao" title="Google Scholar"><img src="https://cdn.simpleicons.org/googlescholar/4285F4" alt="Google Scholar" width="13" height="13" style="vertical-align: -2px;"></a>,
+<a href="mailto:liuqk3@ustb.edu.cn"><u>Qiankun Liu</u></a>&nbsp;<a href="https://scholar.google.com/citations?user=TNDbzzMAAAAJ&hl=en&oi=ao" title="Google Scholar"><img src="https://cdn.simpleicons.org/googlescholar/4285F4" alt="Google Scholar" width="13" height="13" style="vertical-align: -2px;"></a>,
+<a href="mailto:mhmpub@ustb.edu.cn"><u>Huimin Ma</u></a>&nbsp;<a href="https://scholar.google.com/citations?user=32hwVLEAAAAJ&hl=en&oi=ao" title="Google Scholar"><img src="https://cdn.simpleicons.org/googlescholar/4285F4" alt="Google Scholar" width="13" height="13" style="vertical-align: -2px;"></a>, and
+<a href="mailto:jschen@ustb.edu.cn"><u>Jiansheng Chen</u></a><sup>†</sup>&nbsp;<a href="https://scholar.google.com/citations?user=A1gA9XIAAAAJ&hl=en&oi=ao" title="Google Scholar"><img src="https://cdn.simpleicons.org/googlescholar/4285F4" alt="Google Scholar" width="13" height="13" style="vertical-align: -2px;"></a>
+
+School of Computer & Communication Engineering, USTB, China
+
+<sup>&#42;</sup> Equal contribution. &nbsp;&nbsp;<sup>†</sup> Corresponding author.
+
+<br>
+
+[![ACM MM 2026](https://img.shields.io/badge/ACM%20MM-2026-orange)](#)
+[![Python](https://img.shields.io/badge/Python-3.10-blue?logo=python)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.1.1-ee4c2c?logo=pytorch)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/License-S--Lab%201.0-green)](LICENSE)
+![Visitors](https://visitor-badge.laobi.icu/badge?page_id=Assassink8.Shift-IISR)
+
+<!-- Replace the # placeholders after the paper and PDF links are public. -->
+[[Paper](#)] [[PDF](#)] [[Code](https://github.com/Assassink8/Shift-IISR)]
+
+</div>
+
+## Updates
+- 2026.07.20: Initial code release for Shift-IISR.
+
+## Overview
+
+Infrared image super-resolution (IISR) seeks to recover high-resolution
+infrared images from low-resolution inputs. Beyond improving image clarity,
+effective IISR must preserve both global infrared distributional characteristics
+and local structural details. Existing approaches often provide insufficient or
+overly intrusive guidance for these two aspects, and the issue is particularly
+pronounced when adapting diffusion models pre-trained on visible images: their
+visible-spectrum priors can bias the reconstruction away from the intrinsic
+infrared manifold.
+
+<p align="center">
+  <img src="assets/teaserfigure.png" alt="overview picture" width="95%">
+</p>
+
+## Framework
 
 <p align="center">
   <img src="assets/framework.png" alt="Overview of the Shift-IISR framework" width="95%">
 </p>
 
-## Highlights
+Shift-IISR is a dual-path diffusion framework for 4× infrared image
+super-resolution that adapts a visible-image diffusion prior to the infrared
+domain while retaining its generative capability through two complementary
+modules:
 
-- A dual-path diffusion framework for IISR that improves distributional and structural consistency while preserving the pre-trained diffusion prior.
-- Global Representation Modulation (GRM) progressively injects infrared features to reduce visible-prior bias during denoising.
-- Local Structure Refinement (LSR) incorporates structural cues at every denoising step to suppress artifacts and improve geometric fidelity.
-- Competitive super-resolution performance with improved global distributional and structural consistency.
+- **Global Representation Modulation (GRM)** progressively injects infrared
+  features into the denoising network to reduce visible-prior bias and improve
+  global distributional consistency.
+- **Local Structure Refinement (LSR)** incorporates edge-based structural cues
+  at each denoising step to suppress artifacts and preserve geometric fidelity.
 
-## Pretrained Weights
+## Visual Results
 
-The released Shift-IISR checkpoint is included in this repository:
+### Manifold Discrepancy
 
-```text
-weights/shift_iisr.pth
-```
+<p align="center">
+  <img src="assets/manifold_discrepancy.png" alt="Manifold discrepancy visualization" width="95%">
+</p>
 
-This checkpoint contains the released GRM feature extractor and GRM projector. It does not duplicate the frozen ResShift UNet or autoencoder.
+### Qualitative Results
+<p align="center">
+  <img src="assets/qualitative_results.png" alt="Qualitative comparison of Shift-IISR" width="95%">
+</p>
 
-The required frozen ResShift base weights are downloaded automatically to `weights/` when absent. They can also be downloaded manually:
+### Quantitative Results
 
-- [Autoencoder (`autoencoder_vq_f4.pth`)](https://github.com/zsyOAOA/ResShift/releases/download/v2.0/autoencoder_vq_f4.pth)
-- [ResShift UNet (`resshift_bicsrx4_s4.pth`)](https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_bicsrx4_s4.pth)
+<p align="center">
+  <img src="assets/quantitative_results.png" alt="Quantitative comparison of Shift-IISR" width="95%">
+</p>
 
-## Deployment
-
-### Environment
+## Installation
 
 Tested with Python 3.10, PyTorch 2.1.1, CUDA 12.1, and xformers 0.0.23.
 
@@ -49,11 +98,31 @@ pip install torch==2.1.1 torchvision==0.16.1 \
 pip install -r requirements.txt
 ```
 
-PyTorch is installed separately first to explicitly select its CUDA 12.1 build. The pinned `torch` and `torchvision` entries in `requirements.txt` then confirm the same installed versions and are not downloaded again. A CUDA-capable PyTorch build requires a compatible NVIDIA driver; a separately installed CUDA toolkit is not required.
+PyTorch is installed separately to explicitly select its CUDA 12.1 build. A
+compatible NVIDIA driver is required, but a separate CUDA toolkit installation
+is not.
+
+## Prepare Models
+
+The released Shift-IISR checkpoint is included in this repository:
+
+```text
+weights/shift_iisr.pth
+```
+
+It contains the GRM feature extractor and GRM projector. The frozen ResShift
+UNet and autoencoder are downloaded automatically to `weights/` when absent;
+they can also be downloaded manually:
+
+- [Autoencoder (`autoencoder_vq_f4.pth`)](https://github.com/zsyOAOA/ResShift/releases/download/v2.0/autoencoder_vq_f4.pth)
+- [ResShift UNet (`resshift_bicsrx4_s4.pth`)](https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_bicsrx4_s4.pth)
+
+## Quick Inference
 
 ### Quick Test
 
-The repository provides 10 paired LR/HR examples in `testdata/LR` and `testdata/HR`. The following commands run inference and then evaluate PSNR, SSIM, and LPIPS:
+The repository includes 10 paired LR/HR examples in `testdata/LR` and
+`testdata/HR`.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python inference_shift_iisr.py \
@@ -69,11 +138,9 @@ CUDA_VISIBLE_DEVICES=0 python evaluate.py \
   --device cuda:0
 ```
 
-The first inference run downloads the two frozen ResShift base weights automatically if they are not already in `weights/`.
+### Custom Input
 
-### Inference and Evaluation
-
-Run 4× super-resolution on one image or a folder of images:
+Run 4× super-resolution on a single image or a folder of images:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python inference_shift_iisr.py \
@@ -84,32 +151,13 @@ CUDA_VISIBLE_DEVICES=0 python inference_shift_iisr.py \
   --bs 1
 ```
 
-The output images are saved in RGB format. Use a smaller `--chop_size` (256 or 64) if GPU memory is limited.
+Outputs are saved in RGB format. Use `--chop_size 256` or `64` if GPU memory
+is limited.
 
-#### Evaluation
+## Training
 
-The evaluation script requires paired ground-truth images with matching filenames and reports the paper metrics: PSNR and SSIM on the Y channel, and LPIPS on RGB images.
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python evaluate.py \
-  --input ./results \
-  --reference /path/to/ground_truth \
-  --device cuda:0
-```
-
-If result filenames have an added suffix, provide it with `--result_suffix`:
-
-```bash
-python evaluate.py \
-  --input ./results \
-  --reference /path/to/ground_truth \
-  --result_suffix _x4 \
-  --device cuda:0
-```
-
-### Training
-
-Set the infrared and visible training-image folders, then launch single-GPU training:
+Set the infrared and visible training-image folders, then launch single-GPU
+training:
 
 ```bash
 MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=0 python main.py \
@@ -119,9 +167,9 @@ MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=0 python main.py \
   data.train.params.vis_source_path=/path/to/train/vis
 ```
 
-The training configuration is in `configs/shift_iisr_x4_train.yaml`. It saves an inference checkpoint as `shift_iisr_<iteration>.pth` and a resumable training state as `training_state_<iteration>.pth` under the run's `ckpts/` directory.
-
-To resume training, use the training-state checkpoint rather than the inference checkpoint:
+Training saves an inference checkpoint as `shift_iisr_<iteration>.pth` and a
+resumable state as `training_state_<iteration>.pth` under `ckpts/`. Resume with
+the training-state checkpoint:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python main.py \
@@ -129,25 +177,19 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   --resume /path/to/ckpts/training_state_<iteration>.pth
 ```
 
-## Results
+## Evaluation
 
-### Quantitative Comparison
+Evaluation requires paired ground-truth images with matching filenames:
 
-<p align="center">
-  <img src="assets/quantitative_results.png" alt="Quantitative comparison of Shift-IISR" width="95%">
-</p>
+```bash
+CUDA_VISIBLE_DEVICES=0 python evaluate.py \
+  --input ./results \
+  --reference /path/to/ground_truth \
+  --device cuda:0
+```
 
-### Qualitative Comparison
-
-<p align="center">
-  <img src="assets/qualitative_results.png" alt="Qualitative comparison of Shift-IISR" width="95%">
-</p>
-
-### Manifold Discrepancy
-
-<p align="center">
-  <img src="assets/manifold_discrepancy.png" alt="Manifold discrepancy visualization" width="80%">
-</p>
+When result names include an additional suffix, provide it with
+`--result_suffix`, for example `--result_suffix _x4`.
 
 ## Citation
 
@@ -160,9 +202,16 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
 }
 ```
 
+## License
+
+This repository is released under the [NTU S-Lab License 1.0](LICENSE) for
+non-commercial research purposes. For commercial use, please contact the
+original contributors.
+
 ## Acknowledgements
 
-This repository is built upon [ResShift](https://github.com/zsyOAOA/ResShift) by NTU S-Lab, which is licensed under the S-Lab License 1.0. Therefore, this code is released for **non-commercial research purposes only**. For commercial use, please contact the original contributors.
+This project builds upon [ResShift](https://github.com/zsyOAOA/ResShift). We
+thank the authors for making their implementation available.
 
 ## Contact
 
