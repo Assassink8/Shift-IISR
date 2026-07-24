@@ -27,7 +27,7 @@ School of Computer & Communication Engineering, USTB, China
 ![Visitors](https://visitor-badge.laobi.icu/badge?page_id=Assassink8.Shift-IISR)
 
 <!-- Replace the # placeholders after the paper and PDF links are public. -->
-[[Paper](#)] [[PDF](#)] [[Code](https://github.com/Assassink8/Shift-IISR)]
+[[Paper](https://arxiv.org/abs/2607.21174)] [[PDF](https://arxiv.org/pdf/2607.21174)] [[Code](https://github.com/Assassink8/Shift-IISR)]
 
 </div>
 
